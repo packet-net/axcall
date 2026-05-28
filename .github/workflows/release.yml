@@ -61,4 +61,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: axcall ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
+          # Tags with a prerelease label (e.g. v0.2.2-rc1) are marked
+          # pre-release so they don't show as the latest stable build.
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
           files: dist/*
