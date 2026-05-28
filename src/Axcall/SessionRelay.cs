@@ -8,10 +8,16 @@ namespace Axcall;
 public sealed class SessionRelay : IAsyncDisposable
 {
     private readonly Ax25Listener listener;
+    private readonly TextReader? input;
+    private readonly TextWriter? output;
     private readonly TaskCompletionSource<Ax25Session> inboundSessionTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public SessionRelay(IKissModem modem, Callsign myCall)
+    // input/output default to the process console; tests inject their own so
+    // multiple relays can run in one process without fighting over Console.
+    public SessionRelay(IKissModem modem, Callsign myCall, TextReader? input = null, TextWriter? output = null)
     {
+        this.input = input;
+        this.output = output;
         listener = new Ax25Listener(modem, new Ax25ListenerOptions
         {
             MyCall = myCall,
@@ -119,14 +125,15 @@ public sealed class SessionRelay : IAsyncDisposable
         }
     }
 
-    private static async Task ReadStdinAsync(Ax25Session session, CancellationToken ct)
+    private async Task ReadStdinAsync(Ax25Session session, CancellationToken ct)
     {
+        var reader = input ?? Console.In;
         while (!ct.IsCancellationRequested)
         {
             string? line;
             try
             {
-                line = await Console.In.ReadLineAsync(ct).ConfigureAwait(false);
+                line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -141,13 +148,13 @@ public sealed class SessionRelay : IAsyncDisposable
         }
     }
 
-    private static void OnSignal(object? sender, DataLinkSignal sig)
+    private void OnSignal(object? sender, DataLinkSignal sig)
     {
         if (sig is DataLinkDataIndication di)
         {
-            var stdout = Console.Out;
-            stdout.Write(Encoding.UTF8.GetString(di.Info.Span));
-            stdout.Flush();
+            var writer = output ?? Console.Out;
+            writer.Write(Encoding.UTF8.GetString(di.Info.Span));
+            writer.Flush();
         }
     }
 

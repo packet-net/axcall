@@ -17,7 +17,12 @@ public sealed class InteropFixture : IAsyncLifetime
     private string? tempDir;
 
     public static string NetsimHost => "127.0.0.1";
+
+    /// <summary>Host port mapped to net-sim node a (KISS 8100) — the hub endpoint.</summary>
     public int NetsimKissPort => netsimContainer?.GetMappedPublicPort(8100) ?? throw new InvalidOperationException("not started");
+
+    /// <summary>Host port mapped to net-sim node b (KISS 8101) — the axcall-to-axcall listen peer.</summary>
+    public int NetsimKissPortB => netsimContainer?.GetMappedPublicPort(8101) ?? throw new InvalidOperationException("not started");
 
     public async Task InitializeAsync()
     {
@@ -40,6 +45,7 @@ public sealed class InteropFixture : IAsyncLifetime
             .WithResourceMapping(Path.Combine(tempDir, "network.yaml"), "/etc/sim/")
             .WithCommand("-autostart")
             .WithPortBinding(8100, true)
+            .WithPortBinding(8101, true)
             .WithPortBinding(8080, true)
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilHttpRequestIsSucceeded(r => r.ForPort(8080).ForPath("/healthz")))

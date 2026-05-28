@@ -3,12 +3,21 @@ capture_db: 6.0
 collision_mode: silence
 
 nodes:
+  # Hub node — the "our outbound" endpoint used by every test.
   - id: a
     ports:
       - id: vhf
         modem:
           mode: afsk1200
         kiss_port: 8100
+  # Second host-side endpoint — the axcall-to-axcall listen peer.
+  - id: b
+    ports:
+      - id: vhf
+        modem:
+          mode: afsk1200
+        kiss_port: 8101
+  # LinBPQ dials this one from inside the Docker network.
   - id: c
     ports:
       - id: vhf
@@ -16,6 +25,10 @@ nodes:
           mode: afsk1200
         kiss_port: 8102
 
+# Node a is the hub: a<->b carries the axcall-to-axcall test, a<->c carries
+# the LinBPQ tests. b and c are not linked, keeping the two scenarios apart.
 links:
+  - { from: a.vhf, to: b.vhf, loss_db: 10 }
+  - { from: b.vhf, to: a.vhf, loss_db: 10 }
   - { from: a.vhf, to: c.vhf, loss_db: 10 }
   - { from: c.vhf, to: a.vhf, loss_db: 10 }
