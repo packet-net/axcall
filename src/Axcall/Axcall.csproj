@@ -16,4 +16,8 @@
     <PackageReference Include="Packet.Kiss.Serial" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Axcall.Tests" />
+  </ItemGroup>
+
 </Project>

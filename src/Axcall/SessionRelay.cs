@@ -153,10 +153,22 @@ public sealed class SessionRelay : IAsyncDisposable
         if (sig is DataLinkDataIndication di)
         {
             var writer = output ?? Console.Out;
-            writer.Write(Encoding.UTF8.GetString(di.Info.Span));
+            writer.Write(RenderReceivedText(di.Info.Span));
             writer.Flush();
         }
     }
+
+    /// <summary>
+    /// Decode a received I-frame's information field as text for the terminal.
+    /// Packet data is CR-terminated (0x0D); CR / CRLF are translated to LF so
+    /// received lines render as real line breaks instead of carriage returns
+    /// that overwrite the current line. Lone LF and text without a terminator
+    /// pass through unchanged (no spurious newline is added).
+    /// </summary>
+    internal static string RenderReceivedText(ReadOnlySpan<byte> info)
+        => Encoding.UTF8.GetString(info)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
 
     private void OnSessionAccepted(object? sender, Ax25SessionEventArgs e)
     {

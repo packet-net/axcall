@@ -55,9 +55,11 @@ public sealed class AxcallToAxcallTests
 
         var connectTask = Task.Run(() => connectorRelay.ConnectAndRelayAsync(ListenerCall, cts.Token), cts.Token);
 
+        // The receive path translates the CR line terminator to LF, so each
+        // received line ends in "\n" — asserting that guards the CR->LF fix.
         var exchanged = await WaitUntil(
-            () => listenerOut.Snapshot().Contains("hello from connector", StringComparison.Ordinal)
-               && connectorOut.Snapshot().Contains("roger from listener", StringComparison.Ordinal),
+            () => listenerOut.Snapshot().Contains("hello from connector\n", StringComparison.Ordinal)
+               && connectorOut.Snapshot().Contains("roger from listener\n", StringComparison.Ordinal),
             TimeSpan.FromSeconds(70), cts.Token);
 
         if (!exchanged)
@@ -68,10 +70,10 @@ public sealed class AxcallToAxcallTests
             output.WriteLine(await fixture.GetNetsimLogsAsync());
         }
 
-        listenerOut.Snapshot().Should().Contain("hello from connector",
-            "the listening axcall instance should receive the connector's I-frame data");
-        connectorOut.Snapshot().Should().Contain("roger from listener",
-            "the connecting axcall instance should receive the listener's I-frame data");
+        listenerOut.Snapshot().Should().Contain("hello from connector\n",
+            "the listening axcall instance should receive the connector's data with the CR rendered as a line break");
+        connectorOut.Snapshot().Should().Contain("roger from listener\n",
+            "the connecting axcall instance should receive the listener's data with the CR rendered as a line break");
 
         // Tear both relays down: cancelling unblocks the scripted readers,
         // each relay then sends DISC and exits.
