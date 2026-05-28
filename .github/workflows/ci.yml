@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-test:
+    name: build + test
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: build
+        run: dotnet build tests/Axcall.Tests/Axcall.Tests.csproj --nologo
+
+      # Unit tests always run — fast, no external dependencies.
+      - name: unit tests
+        run: dotnet test tests/Axcall.Tests/Axcall.Tests.csproj --nologo --no-build --filter "Category!=Integration"
+
+      # Integration tests need Docker (Testcontainers spins up net-sim + LinBPQ).
+      # Detect Docker at the workflow level and skip them when it's absent, so
+      # the test code stays free of environment guards.
+      - name: check docker
+        id: docker
+        run: |
+          if docker info >/dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docker not available on this runner — skipping integration tests"
+          fi
+
+      - name: integration tests
+        if: steps.docker.outputs.available == 'true'
+        run: dotnet test tests/Axcall.Tests/Axcall.Tests.csproj --nologo --no-build --filter "Category=Integration"
