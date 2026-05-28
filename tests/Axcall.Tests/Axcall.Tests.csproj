@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Testcontainers" />
+    <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Packet.Kiss" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Axcall\Axcall.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Integration\Resources\network.yaml" />
+    <EmbeddedResource Include="Integration\Resources\bpq32.cfg" />
+  </ItemGroup>
+
+</Project>

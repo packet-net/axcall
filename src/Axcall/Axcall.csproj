@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>axcall</AssemblyName>
+    <RootNamespace>Axcall</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Packet.Core" />
+    <PackageReference Include="Packet.Ax25" />
+    <PackageReference Include="Packet.Kiss" />
+    <PackageReference Include="Packet.Kiss.Serial" />
+  </ItemGroup>
+
+</Project>

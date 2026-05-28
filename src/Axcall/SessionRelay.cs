@@ -1,0 +1,166 @@
+using System.Text;
+using Packet.Ax25.Session;
+using Packet.Core;
+using Packet.Kiss;
+
+namespace Axcall;
+
+public sealed class SessionRelay : IAsyncDisposable
+{
+    private readonly Ax25Listener listener;
+    private readonly TaskCompletionSource<Ax25Session> inboundSessionTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public SessionRelay(IKissModem modem, Callsign myCall)
+    {
+        listener = new Ax25Listener(modem, new Ax25ListenerOptions
+        {
+            MyCall = myCall,
+            ConfigureSession = session =>
+            {
+                session.DataLinkSignalEmitted += OnSignal;
+            },
+        });
+        listener.SessionAccepted += OnSessionAccepted;
+    }
+
+    public async Task<int> ConnectAndRelayAsync(Callsign target, CancellationToken ct)
+    {
+        await listener.StartAsync(ct).ConfigureAwait(false);
+        listener.AcceptIncoming = false;
+
+        await Console.Error.WriteLineAsync($"axcall: connecting to {FormatCallsign(target)}...").ConfigureAwait(false);
+
+        Ax25Session session;
+        try
+        {
+            session = await listener.ConnectAsync(target, ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            await Console.Error.WriteLineAsync("axcall: connect timed out").ConfigureAwait(false);
+            return 4;
+        }
+        catch (InvalidOperationException)
+        {
+            await Console.Error.WriteLineAsync("axcall: connect refused").ConfigureAwait(false);
+            return 4;
+        }
+
+        await Console.Error.WriteLineAsync($"axcall: connected to {FormatCallsign(target)}").ConfigureAwait(false);
+        return await RelayAsync(session, ct).ConfigureAwait(false);
+    }
+
+    public async Task<int> ListenAndRelayAsync(CancellationToken ct)
+    {
+        await listener.StartAsync(ct).ConfigureAwait(false);
+        listener.AcceptIncoming = true;
+
+        await Console.Error.WriteLineAsync("axcall: listening...").ConfigureAwait(false);
+
+        Ax25Session session;
+        try
+        {
+            session = await inboundSessionTcs.Task.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return 0;
+        }
+
+        var peer = session.Context.Remote;
+        await Console.Error.WriteLineAsync($"axcall: connection from {FormatCallsign(peer)}").ConfigureAwait(false);
+        return await RelayAsync(session, ct).ConfigureAwait(false);
+    }
+
+    private async Task<int> RelayAsync(Ax25Session session, CancellationToken ct)
+    {
+        var disconnectTcs = new TaskCompletionSource<DataLinkSignal>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void DisconnectHandler(object? sender, DataLinkSignal sig)
+        {
+            if (sig is DataLinkDisconnectIndication or DataLinkDisconnectConfirm)
+            {
+                disconnectTcs.TrySetResult(sig);
+            }
+        }
+
+        session.DataLinkSignalEmitted += DisconnectHandler;
+        try
+        {
+            using var stdinCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var stdinTask = Task.Run(() => ReadStdinAsync(session, stdinCts.Token), CancellationToken.None);
+
+            var completed = await Task.WhenAny(stdinTask, disconnectTcs.Task).ConfigureAwait(false);
+
+            if (completed == stdinTask)
+            {
+                session.PostEvent(new DlDisconnectRequest());
+                using var discCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                discCts.CancelAfter(TimeSpan.FromSeconds(15));
+                try
+                {
+                    await disconnectTcs.Task.WaitAsync(discCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+            else
+            {
+                await stdinCts.CancelAsync().ConfigureAwait(false);
+            }
+
+            await Console.Error.WriteLineAsync("axcall: disconnected").ConfigureAwait(false);
+            return 0;
+        }
+        finally
+        {
+            session.DataLinkSignalEmitted -= DisconnectHandler;
+        }
+    }
+
+    private static async Task ReadStdinAsync(Ax25Session session, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            string? line;
+            try
+            {
+                line = await Console.In.ReadLineAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (line is null)
+                return;
+
+            var bytes = Encoding.UTF8.GetBytes(line + "\r");
+            session.PostEvent(new DlDataRequest(bytes));
+        }
+    }
+
+    private static void OnSignal(object? sender, DataLinkSignal sig)
+    {
+        if (sig is DataLinkDataIndication di)
+        {
+            var stdout = Console.Out;
+            stdout.Write(Encoding.UTF8.GetString(di.Info.Span));
+            stdout.Flush();
+        }
+    }
+
+    private void OnSessionAccepted(object? sender, Ax25SessionEventArgs e)
+    {
+        inboundSessionTcs.TrySetResult(e.Session);
+    }
+
+    private static string FormatCallsign(Callsign c)
+        => c.Ssid == 0 ? c.Base : c.ToString();
+
+    public async ValueTask DisposeAsync()
+    {
+        await listener.DisposeAsync().ConfigureAwait(false);
+    }
+}
