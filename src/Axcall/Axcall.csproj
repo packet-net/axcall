@@ -6,7 +6,7 @@
     <RootNamespace>Axcall</RootNamespace>
     <!-- Baseline version for local/dev builds; the release workflow
          overrides this with -p:Version from the git tag. -->
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
