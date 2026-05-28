@@ -76,6 +76,10 @@ public static class Program
             target = t;
         }
 
+        // Stop mouse clicks (QuickEdit Mode) from pasting console text into our
+        // stdin on the interactive Windows console.
+        WindowsConsole.DisableQuickEditAndMouse();
+
         using var appCts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>
         {
