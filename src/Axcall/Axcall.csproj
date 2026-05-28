@@ -4,8 +4,6 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>axcall</AssemblyName>
     <RootNamespace>Axcall</RootNamespace>
-    <!-- Required by the [LibraryImport] source generator (WindowsConsole). -->
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Baseline version for local/dev builds; the release workflow
          overrides this with -p:Version from the git tag. -->
     <Version>0.2.1</Version>

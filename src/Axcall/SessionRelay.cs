@@ -127,67 +127,25 @@ public sealed class SessionRelay : IAsyncDisposable
 
     private async Task ReadStdinAsync(Ax25Session session, CancellationToken ct)
     {
-        // Injected reader (tests / explicit redirection): use the async path.
-        if (input is not null)
+        var reader = input ?? Console.In;
+        while (!ct.IsCancellationRequested)
         {
-            while (!ct.IsCancellationRequested)
-            {
-                string? line;
-                try
-                {
-                    line = await input.ReadLineAsync(ct).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-
-                if (line is null)
-                    return;
-
-                session.PostEvent(new DlDataRequest(Encoding.UTF8.GetBytes(line + "\r")));
-            }
-            return;
-        }
-
-        // Real console/pipe: read synchronously on a dedicated background
-        // thread. The cancellable Console.In.ReadLineAsync is unreliable on the
-        // Windows console — it can surface existing console-buffer content (the
-        // shell prompt) instead of just the user's typed line. Plain
-        // Console.ReadLine is the robust path and mirrors the blocking read-pump
-        // the KISS serial modem uses. A blocking read can't be interrupted, so
-        // on shutdown we stop posting and let the thread die with the process.
-        var done = new TaskCompletionSource();
-        var reader = new Thread(() =>
-        {
+            string? line;
             try
             {
-                while (!ct.IsCancellationRequested)
-                {
-                    string? line = Console.ReadLine();
-                    if (line is null || ct.IsCancellationRequested)
-                        break;
-                    session.PostEvent(new DlDataRequest(Encoding.UTF8.GetBytes(line + "\r")));
-                }
+                line = await reader.ReadLineAsync(ct).ConfigureAwait(false);
             }
-#pragma warning disable CA1031 // a background reader must not crash the process
-            catch (Exception)
-#pragma warning restore CA1031
+            catch (OperationCanceledException)
             {
+                return;
             }
-            finally
-            {
-                done.TrySetResult();
-            }
-        })
-        {
-            IsBackground = true,
-            Name = "axcall-stdin",
-        };
-        reader.Start();
 
-        using var registration = ct.Register(() => done.TrySetResult());
-        await done.Task.ConfigureAwait(false);
+            if (line is null)
+                return;
+
+            var bytes = Encoding.UTF8.GetBytes(line + "\r");
+            session.PostEvent(new DlDataRequest(bytes));
+        }
     }
 
     private void OnSignal(object? sender, DataLinkSignal sig)
