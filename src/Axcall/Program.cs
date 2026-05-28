@@ -77,8 +77,10 @@ public static class Program
         }
 
         // Stop mouse clicks (QuickEdit Mode) from pasting console text into our
-        // stdin on the interactive Windows console.
+        // stdin on the interactive Windows console; restore the prior mode on
+        // exit so the shell gets its console back unchanged.
         WindowsConsole.DisableQuickEditAndMouse();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => WindowsConsole.Restore();
 
         using var appCts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>
@@ -129,6 +131,7 @@ public static class Program
         }
         finally
         {
+            WindowsConsole.Restore();
             if (modem is IAsyncDisposable ad)
                 await ad.DisposeAsync().ConfigureAwait(false);
             else if (modem is IDisposable d)
