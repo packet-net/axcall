@@ -27,6 +27,20 @@ public sealed class ArgumentParsingTests
     }
 
     [Fact]
+    public async Task Version_Flag_Returns_Exit_Code_0()
+    {
+        var code = await Program.Main(["--version"]);
+        code.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Short_Version_Flag_Returns_Exit_Code_0()
+    {
+        var code = await Program.Main(["-V"]);
+        code.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Missing_Mycall_Returns_Exit_Code_2()
     {
         var code = await Program.Main(["G7RUX", "-t", "localhost:8001"]);

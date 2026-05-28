@@ -1,3 +1,4 @@
+using System.Reflection;
 using Packet.Core;
 using Packet.Kiss;
 using Packet.Kiss.Serial;
@@ -8,6 +9,12 @@ public static class Program
 {
     public static async Task<int> Main(string[] args)
     {
+        if (args.Contains("--version") || args.Contains("-V"))
+        {
+            PrintVersion();
+            return 0;
+        }
+
         if (args.Length == 0 || args.Contains("--help") || args.Contains("-h"))
         {
             PrintUsage();
@@ -156,7 +163,36 @@ public static class Program
               -t, --tcp <host:port>  TCP KISS (e.g. localhost:8001)
               -b, --baud <rate>      Serial baud rate (default: 57600)
               -l, --listen           Wait for inbound connection
+              -V, --version          Show version info (SDL + runtime libs)
               -h, --help             Show this help
             """);
+    }
+
+    private static void PrintVersion()
+    {
+        Console.WriteLine($"axcall {AsmVersion(typeof(Program))}");
+        Console.WriteLine();
+        Console.WriteLine("SDL spec tables:");
+        Console.WriteLine($"  Packet.Ax25.Sdl     {AsmVersion(typeof(Packet.Ax25.Sdl.TransitionSpec))}");
+        Console.WriteLine();
+        Console.WriteLine("Runtime libraries:");
+        Console.WriteLine($"  Packet.Core         {AsmVersion(typeof(Callsign))}");
+        Console.WriteLine($"  Packet.Ax25         {AsmVersion(typeof(Packet.Ax25.Ax25Frame))}");
+        Console.WriteLine($"  Packet.Kiss         {AsmVersion(typeof(KissEncoder))}");
+        Console.WriteLine($"  Packet.Kiss.Serial  {AsmVersion(typeof(KissSerialModem))}");
+    }
+
+    // Read the assembly's informational version (the NuGet package version),
+    // trimming any +commit-hash build-metadata suffix SourceLink appends.
+    private static string AsmVersion(Type t)
+    {
+        var asm = t.Assembly;
+        var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrEmpty(info))
+        {
+            var plus = info.IndexOf('+', StringComparison.Ordinal);
+            return plus >= 0 ? info[..plus] : info;
+        }
+        return asm.GetName().Version?.ToString() ?? "unknown";
     }
 }
