@@ -6,10 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageVersion Include="Packet.Core" Version="0.7.0" />
-    <PackageVersion Include="Packet.Ax25" Version="0.7.0" />
-    <PackageVersion Include="Packet.Kiss" Version="0.7.0" />
-    <PackageVersion Include="Packet.Kiss.Serial" Version="0.7.0" />
+    <PackageVersion Include="Packet.Core" Version="0.8.0" />
+    <PackageVersion Include="Packet.Ax25" Version="0.8.0" />
+    <PackageVersion Include="Packet.Kiss" Version="0.8.0" />
+    <PackageVersion Include="Packet.Kiss.Serial" Version="0.8.0" />
   </ItemGroup>
 
   <ItemGroup>
