@@ -2,6 +2,7 @@ using System.Reflection;
 using Packet.Core;
 using Packet.Kiss;
 using Packet.Kiss.Serial;
+using Packet.Ax25.Transport;
 
 namespace Axcall;
 
@@ -83,7 +84,7 @@ public static class Program
             appCts.Cancel();
         };
 
-        IKissModem modem;
+        IAx25Transport modem;
         try
         {
             if (tcpArg is not null)

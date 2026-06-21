@@ -1,7 +1,7 @@
 using System.Text;
 using Packet.Ax25.Session;
 using Packet.Core;
-using Packet.Kiss;
+using Packet.Ax25.Transport;
 
 namespace Axcall;
 
@@ -14,7 +14,7 @@ public sealed class SessionRelay : IAsyncDisposable
 
     // input/output default to the process console; tests inject their own so
     // multiple relays can run in one process without fighting over Console.
-    public SessionRelay(IKissModem modem, Callsign myCall, TextReader? input = null, TextWriter? output = null)
+    public SessionRelay(IAx25Transport modem, Callsign myCall, TextReader? input = null, TextWriter? output = null)
     {
         this.input = input;
         this.output = output;
