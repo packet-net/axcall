@@ -6,11 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageVersion Include="Packet.Core" Version="0.23.0" />
-    <PackageVersion Include="Packet.Ax25" Version="0.23.0" />
-    <PackageVersion Include="Packet.Ax25.Transport.Abstractions" Version="0.23.0" />
-    <PackageVersion Include="Packet.Kiss" Version="0.23.0" />
-    <PackageVersion Include="Packet.Kiss.Serial" Version="0.23.0" />
+    <PackageVersion Include="Packet.Core" Version="0.24.0" />
+    <PackageVersion Include="Packet.Ax25" Version="0.24.0" />
+    <PackageVersion Include="Packet.Ax25.Transport.Abstractions" Version="0.24.0" />
+    <PackageVersion Include="Packet.Kiss" Version="0.24.0" />
+    <PackageVersion Include="Packet.Kiss.Serial" Version="0.24.0" />
   </ItemGroup>
 
   <ItemGroup>
