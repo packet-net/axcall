@@ -37,8 +37,7 @@ public sealed class InteropFixture : IAsyncLifetime
         await network.CreateAsync().ConfigureAwait(false);
 
         // Start netsim first
-        netsimContainer = new ContainerBuilder()
-            .WithImage(NetsimImage)
+        netsimContainer = new ContainerBuilder(NetsimImage)
             .WithName($"axcall-netsim-{Guid.NewGuid():N}")
             .WithNetwork(network)
             .WithNetworkAliases("netsim")
@@ -62,8 +61,7 @@ public sealed class InteropFixture : IAsyncLifetime
         var bpq32 = bpq32Template.Replace("IPADDR=netsim", $"IPADDR={netsimIp}");
         File.WriteAllText(Path.Combine(tempDir, "bpq32.cfg"), bpq32);
 
-        linbpqContainer = new ContainerBuilder()
-            .WithImage(LinbpqImage)
+        linbpqContainer = new ContainerBuilder(LinbpqImage)
             .WithName($"axcall-linbpq-{Guid.NewGuid():N}")
             .WithNetwork(network)
             .WithNetworkAliases("linbpq")
