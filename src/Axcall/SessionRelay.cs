@@ -5,6 +5,34 @@ using Packet.Ax25.Transport;
 
 namespace Axcall;
 
+/// <summary>
+/// The link parameters the command line chooses. Both are set on the listener
+/// explicitly so axcall's on-air behaviour is its own, and does not drift with
+/// the defaults of whichever Packet.Ax25 version it happens to be pinned to.
+/// </summary>
+public sealed record SessionRelayOptions
+{
+    /// <summary>Default idle-link poll interval (T3), in seconds.</summary>
+    public const int DefaultKeepaliveSeconds = 300;
+
+    /// <summary>
+    /// Dial with SABME (AX.25 v2.2, modulo 128) instead of SABM. The library
+    /// falls back to a v2.0/SABM dial when the peer answers FRMR (LinBPQ) or DM
+    /// (XRouter), so the call still goes through; it just costs a round trip
+    /// against a modulo-8-only node. Outbound only: an inbound session adopts
+    /// whatever the caller's SABM or SABME asks for.
+    /// </summary>
+    public bool Mod128 { get; init; }
+
+    /// <summary>
+    /// T3, the inactive-link timer: with no traffic for this long the link sends
+    /// an RR poll to check the peer is still there. Applies to inbound and
+    /// outbound sessions. Must be positive: the library arms T3 as a plain timer
+    /// with no "never" value, so zero would poll continuously.
+    /// </summary>
+    public TimeSpan Keepalive { get; init; } = TimeSpan.FromSeconds(DefaultKeepaliveSeconds);
+}
+
 public sealed class SessionRelay : IAsyncDisposable
 {
     private readonly Ax25Listener listener;
@@ -14,13 +42,21 @@ public sealed class SessionRelay : IAsyncDisposable
 
     // input/output default to the process console; tests inject their own so
     // multiple relays can run in one process without fighting over Console.
-    public SessionRelay(IAx25Transport modem, Callsign myCall, TextReader? input = null, TextWriter? output = null)
+    // options defaults to a modulo-8 dial with the default keepalive.
+    public SessionRelay(IAx25Transport modem, Callsign myCall, TextReader? input = null, TextWriter? output = null, SessionRelayOptions? options = null)
     {
         this.input = input;
         this.output = output;
+        options ??= new SessionRelayOptions();
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.Keepalive, TimeSpan.Zero);
         listener = new Ax25Listener(modem, new Ax25ListenerOptions
         {
             MyCall = myCall,
+            // Always set, never inherited: Packet.Ax25 0.35 defaults to a 30 s
+            // T3 and a SABME-first dial, neither of which suits a terminal
+            // talking to modulo-8 nodes over a shared channel.
+            T3 = options.Keepalive,
+            PreferExtendedConnect = options.Mod128,
             ConfigureSession = session =>
             {
                 session.DataLinkSignalEmitted += OnSignal;

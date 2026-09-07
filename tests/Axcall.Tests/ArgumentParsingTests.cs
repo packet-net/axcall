@@ -103,4 +103,70 @@ public sealed class ArgumentParsingTests
         var code = await Program.Main(["G7RUX", "-s", "M0LTE", "-t", "127.0.0.1:1"]);
         code.Should().Be(3);
     }
+
+    [Fact]
+    public void Defaults_Are_Mod8_Dial_And_300s_Keepalive()
+    {
+        var parsed = Program.ParseArgs(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001"]);
+        parsed.Should().NotBeNull();
+        parsed!.Mod128.Should().BeFalse();
+        parsed.Keepalive.Should().Be(TimeSpan.FromSeconds(300));
+    }
+
+    [Fact]
+    public void Mod128_And_Keepalive_Flags_Are_Parsed()
+    {
+        var parsed = Program.ParseArgs(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", "--mod128", "--keepalive", "60"]);
+        parsed.Should().NotBeNull();
+        parsed!.Mod128.Should().BeTrue();
+        parsed.Keepalive.Should().Be(TimeSpan.FromSeconds(60));
+    }
+
+    [Fact]
+    public void Keepalive_Applies_In_Listen_Mode()
+    {
+        var parsed = Program.ParseArgs(["-l", "-s", "M0LTE", "-t", "localhost:8001", "--keepalive", "120"]);
+        parsed.Should().NotBeNull();
+        parsed!.Listen.Should().BeTrue();
+        parsed.Keepalive.Should().Be(TimeSpan.FromSeconds(120));
+    }
+
+    [Fact]
+    public void Largest_Keepalive_Is_Accepted()
+    {
+        var parsed = Program.ParseArgs(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", "--keepalive", "4294967"]);
+        parsed.Should().NotBeNull();
+        parsed!.Keepalive.Should().Be(TimeSpan.FromSeconds(Program.MaxKeepaliveSeconds));
+    }
+
+    [Theory]
+    // Zero would poll continuously (the library has no "never poll" T3), so it is rejected.
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("notanumber")]
+    [InlineData("1.5")]
+    // One past the timer ceiling.
+    [InlineData("4294968")]
+    // Beyond what a 64-bit integer holds.
+    [InlineData("99999999999999999999")]
+    public async Task Invalid_Keepalive_Returns_Exit_Code_2(string value)
+    {
+        var code = await Program.Main(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", "--keepalive", value]);
+        code.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Missing_Keepalive_Value_Returns_Exit_Code_2()
+    {
+        var code = await Program.Main(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", "--keepalive"]);
+        code.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Mod128_Does_Not_Take_A_Value()
+    {
+        // The token after --mod128 is the destination, so a second one is unexpected.
+        var code = await Program.Main(["--mod128", "G7RUX", "EXTRA", "-s", "M0LTE", "-t", "localhost:8001"]);
+        code.Should().Be(2);
+    }
 }
