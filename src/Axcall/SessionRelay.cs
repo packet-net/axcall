@@ -31,6 +31,51 @@ public sealed record SessionRelayOptions
     /// with no "never" value, so zero would poll continuously.
     /// </summary>
     public TimeSpan Keepalive { get; init; } = TimeSpan.FromSeconds(DefaultKeepaliveSeconds);
+
+    // The link parameters below are null when the command line did not give
+    // them: the library's own default then applies and axcall does not restate
+    // it. They apply to inbound and outbound sessions alike (all but NoXid,
+    // which gates the outbound dial only).
+
+    /// <summary>
+    /// k, the send window (MAXFRAME): I-frames in flight before an ack is
+    /// needed. null leaves the library's 4, on either modulus; XID then takes the
+    /// lower of what each end offers. With SREJ negotiated the library holds the
+    /// window to half the modulus (4 on modulo 8), whatever was asked for.
+    /// </summary>
+    public int? Window { get; init; }
+
+    /// <summary>
+    /// N1, the largest info field per frame in bytes (PACLEN). null leaves the
+    /// library's 256. What axcall offers in XID and the most it sends per
+    /// frame; XID may lower it to the peer's advertised value.
+    /// </summary>
+    public int? Paclen { get; init; }
+
+    /// <summary>N2, retries before the link is dropped (RETRY). null leaves the library's 10.</summary>
+    public int? Retries { get; init; }
+
+    /// <summary>
+    /// The initial T1, the ack timeout (FRACK). null leaves the library's 6 s.
+    /// Only the starting point: the library smooths T1 from the measured round
+    /// trip once frames flow.
+    /// </summary>
+    public TimeSpan? Frack { get; init; }
+
+    /// <summary>
+    /// T2, the ack delay (RESPTIME): received frames are acknowledged together
+    /// once this has elapsed. null leaves the library's 3 s. Zero acknowledges
+    /// every frame at once.
+    /// </summary>
+    public TimeSpan? AckDelay { get; init; }
+
+    /// <summary>
+    /// Skip the XID exchange the library runs before the SABM on a modulo-8
+    /// dial. Off by default: the dial offers SREJ and its window, and the peer
+    /// that answers gets selective retransmit. On, the link is plain go-back-N.
+    /// Outbound only; the inbound answerer is untouched.
+    /// </summary>
+    public bool NoXid { get; init; }
 }
 
 public sealed class SessionRelay : IAsyncDisposable
@@ -57,11 +102,25 @@ public sealed class SessionRelay : IAsyncDisposable
             // talking to modulo-8 nodes over a shared channel.
             T3 = options.Keepalive,
             PreferExtendedConnect = options.Mod128,
+            // Only set when the command line gave them (null otherwise), so
+            // the library's spec defaults apply untouched.
+            K = options.Window,
+            N2 = options.Retries,
+            T1V = options.Frack,
+            T2 = options.AckDelay,
+            PreConnectXidNegotiatesSrej = !options.NoXid,
             ConfigureSession = session =>
             {
                 session.DataLinkSignalEmitted += OnSignal;
             },
         });
+        if (options.Paclen is { } paclen)
+        {
+            // N1 is not on Ax25ListenerOptions; it lives only on the live-reseed
+            // record, so seed it the way the node host does: a post-construction
+            // reseed that carries everything else across unchanged.
+            listener.UpdateSessionParameters(listener.CurrentSessionParameters with { N1 = paclen });
+        }
         listener.SessionAccepted += OnSessionAccepted;
     }
 
@@ -88,7 +147,7 @@ public sealed class SessionRelay : IAsyncDisposable
             return 4;
         }
 
-        await Console.Error.WriteLineAsync($"axcall: connected to {FormatCallsign(target)}").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync($"axcall: connected to {FormatCallsign(target)} ({DescribeLink(session.Context)})").ConfigureAwait(false);
         return await RelayAsync(session, ct).ConfigureAwait(false);
     }
 
@@ -110,7 +169,7 @@ public sealed class SessionRelay : IAsyncDisposable
         }
 
         var peer = session.Context.Remote;
-        await Console.Error.WriteLineAsync($"axcall: connection from {FormatCallsign(peer)}").ConfigureAwait(false);
+        await Console.Error.WriteLineAsync($"axcall: connection from {FormatCallsign(peer)} ({DescribeLink(session.Context)})").ConfigureAwait(false);
         return await RelayAsync(session, ct).ConfigureAwait(false);
     }
 
@@ -213,6 +272,24 @@ public sealed class SessionRelay : IAsyncDisposable
 
     private static string FormatCallsign(Callsign c)
         => c.Ssid == 0 ? c.Base : c.ToString();
+
+    /// <summary>
+    /// The link parameters a session actually ended up with, read from its live
+    /// context once it is connected: modulus, window, paclen and whether SREJ was
+    /// negotiated. This is what the flags and the XID exchange settled between
+    /// them, so the user can see it. When the library enforces a smaller window
+    /// than the negotiated k (the SREJ half-modulus hold, or the modulus itself),
+    /// the enforced figure is shown alongside.
+    /// </summary>
+    internal static string DescribeLink(Ax25SessionContext ctx)
+    {
+        var modulus = ctx.IsExtended ? "mod-128" : "mod-8";
+        var window = ctx.EffectiveWindow < ctx.K
+            ? $"window {ctx.K} ({ctx.EffectiveWindow} in effect)"
+            : $"window {ctx.K}";
+        var srej = ctx.SrejEnabled ? "on" : "off";
+        return $"{modulus}, {window}, paclen {ctx.N1}, SREJ {srej}";
+    }
 
     public async ValueTask DisposeAsync()
     {
