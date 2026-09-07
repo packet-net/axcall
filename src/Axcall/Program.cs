@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using Packet.Core;
 using Packet.Kiss;
@@ -7,6 +8,11 @@ using Packet.Ax25.Transport;
 namespace Axcall;
 
 /// <summary>Everything the command line settled, once it parsed cleanly.</summary>
+/// <remarks>
+/// The link parameters from <see cref="Window"/> to <see cref="AckDelay"/> are
+/// null when their flag was not given, so the library's own default applies and
+/// axcall never restates it.
+/// </remarks>
 internal sealed record ParsedArgs(
     Callsign MyCall,
     string? PortName,
@@ -15,7 +21,13 @@ internal sealed record ParsedArgs(
     bool Listen,
     Callsign? Target,
     bool Mod128,
-    TimeSpan Keepalive);
+    TimeSpan Keepalive,
+    int? Window,
+    int? Paclen,
+    int? Retries,
+    TimeSpan? Frack,
+    TimeSpan? AckDelay,
+    bool NoXid);
 
 public static class Program
 {
@@ -24,6 +36,24 @@ public static class Program
     // 49.7 days); a larger value would throw when the link came up rather than
     // at the command line, so bound it here where the user can see why.
     internal const int MaxKeepaliveSeconds = 4_294_967;
+
+    // --window (k): I-frames are numbered modulo 8 or 128 and at most modulus-1
+    // may be outstanding, so the ceiling follows --mod128.
+    internal const int MaxWindowMod8 = 7;
+    internal const int MaxWindowMod128 = 127;
+
+    // --paclen (N1): neither the XID I-field-length parameter nor the library's
+    // segmenter caps this; 1024 is the conventional TNC/BPQ PACLEN ceiling and
+    // keeps a frame well inside the KISS decoder's 4096-byte bound.
+    internal const int MaxPaclen = 1024;
+
+    // --retries (N2): the conventional 8-bit RETRY ceiling.
+    internal const int MaxRetries = 255;
+
+    // --frack (initial T1) and --ack-delay (T2), in seconds.
+    internal const double MinFrackSeconds = 0.5;
+    internal const double MaxFrackSeconds = 60;
+    internal const double MaxAckDelaySeconds = 30;
 
     public static async Task<int> Main(string[] args)
     {
@@ -72,6 +102,12 @@ public static class Program
             {
                 Mod128 = parsed.Mod128,
                 Keepalive = parsed.Keepalive,
+                Window = parsed.Window,
+                Paclen = parsed.Paclen,
+                Retries = parsed.Retries,
+                Frack = parsed.Frack,
+                AckDelay = parsed.AckDelay,
+                NoXid = parsed.NoXid,
             };
             await using var relay = new SessionRelay(modem, parsed.MyCall, options: relayOptions);
 
@@ -115,6 +151,14 @@ public static class Program
         string? destination = null;
         bool mod128 = false;
         long keepaliveSeconds = SessionRelayOptions.DefaultKeepaliveSeconds;
+        // The link parameters are collected as given and validated after the
+        // loop: --window's ceiling depends on --mod128 wherever that appears.
+        string? windowArg = null;
+        string? paclenArg = null;
+        string? retriesArg = null;
+        string? frackArg = null;
+        string? ackDelayArg = null;
+        bool noXid = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -149,6 +193,29 @@ public static class Program
                     if (keepaliveSeconds > MaxKeepaliveSeconds)
                         return Fail($"keepalive too large: {args[i]} (max {MaxKeepaliveSeconds} seconds)");
                     break;
+                case "--window":
+                    if (++i >= args.Length) return Fail("missing value for --window");
+                    windowArg = args[i];
+                    break;
+                case "--paclen":
+                    if (++i >= args.Length) return Fail("missing value for --paclen");
+                    paclenArg = args[i];
+                    break;
+                case "--retries":
+                    if (++i >= args.Length) return Fail("missing value for --retries");
+                    retriesArg = args[i];
+                    break;
+                case "--frack":
+                    if (++i >= args.Length) return Fail("missing value for --frack");
+                    frackArg = args[i];
+                    break;
+                case "--ack-delay":
+                    if (++i >= args.Length) return Fail("missing value for --ack-delay");
+                    ackDelayArg = args[i];
+                    break;
+                case "--no-xid":
+                    noXid = true;
+                    break;
                 default:
                     if (args[i].StartsWith('-')) return Fail($"unknown option: {args[i]}");
                     if (destination is not null) return Fail($"unexpected argument: {args[i]}");
@@ -163,6 +230,47 @@ public static class Program
         if (!listen && destination is null) return Fail("<destination> is required (or use --listen)");
         if (listen && destination is not null) return Fail("--listen and <destination> are mutually exclusive");
 
+        int? window = null;
+        if (windowArg is not null)
+        {
+            int max = mod128 ? MaxWindowMod128 : MaxWindowMod8;
+            if (!TryParseCount(windowArg, out var w) || w < 1 || w > max)
+                return Fail($"invalid window: {windowArg} (must be 1..{MaxWindowMod8}, or 1..{MaxWindowMod128} with --mod128)");
+            window = w;
+        }
+
+        int? paclen = null;
+        if (paclenArg is not null)
+        {
+            if (!TryParseCount(paclenArg, out var p) || p < 1 || p > MaxPaclen)
+                return Fail($"invalid paclen: {paclenArg} (must be 1..{MaxPaclen} bytes)");
+            paclen = p;
+        }
+
+        int? retries = null;
+        if (retriesArg is not null)
+        {
+            if (!TryParseCount(retriesArg, out var r) || r < 1 || r > MaxRetries)
+                return Fail($"invalid retries: {retriesArg} (must be 1..{MaxRetries})");
+            retries = r;
+        }
+
+        TimeSpan? frack = null;
+        if (frackArg is not null)
+        {
+            if (!TryParseSeconds(frackArg, out var f) || f < MinFrackSeconds || f > MaxFrackSeconds)
+                return Fail(FormattableString.Invariant($"invalid frack: {frackArg} (must be {MinFrackSeconds}..{MaxFrackSeconds} seconds)"));
+            frack = TimeSpan.FromSeconds(f);
+        }
+
+        TimeSpan? ackDelay = null;
+        if (ackDelayArg is not null)
+        {
+            if (!TryParseSeconds(ackDelayArg, out var a) || a < 0 || a > MaxAckDelaySeconds)
+                return Fail(FormattableString.Invariant($"invalid ack-delay: {ackDelayArg} (must be 0..{MaxAckDelaySeconds} seconds)"));
+            ackDelay = TimeSpan.FromSeconds(a);
+        }
+
         if (!Callsign.TryParse(myCallStr.ToUpperInvariant(), out var myCall))
             return Fail($"invalid callsign: {myCallStr}");
 
@@ -174,8 +282,20 @@ public static class Program
             target = t;
         }
 
-        return new ParsedArgs(myCall, portName, tcpArg, baudRate, listen, target, mod128, TimeSpan.FromSeconds(keepaliveSeconds));
+        return new ParsedArgs(
+            myCall, portName, tcpArg, baudRate, listen, target, mod128, TimeSpan.FromSeconds(keepaliveSeconds),
+            window, paclen, retries, frack, ackDelay, noXid);
     }
+
+    // A plain unsigned whole number: no sign, whitespace, separators or exponent.
+    private static bool TryParseCount(string s, out int value)
+        => int.TryParse(s, NumberStyles.None, CultureInfo.InvariantCulture, out value);
+
+    // Seconds with an optional decimal part ("2.5"), always with a '.' whatever
+    // the locale; no sign, exponent or separators. NaN and infinity are rejected.
+    private static bool TryParseSeconds(string s, out double value)
+        => double.TryParse(s, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out value)
+           && double.IsFinite(value);
 
     private static (string Host, int Port) ParseHostPort(string arg)
     {
@@ -226,6 +346,31 @@ public static class Program
                                      positive whole number; 0 is rejected because the
                                      link layer has no "never poll" setting (a zero
                                      timer would poll continuously).
+              --window <n>           Send window, k (MAXFRAME): frames in flight before
+                                     an ack is needed. 1..{MaxWindowMod8}, or 1..{MaxWindowMod128} with --mod128.
+                                     Default 4 on either modulus, after which XID takes
+                                     the lower of what each end offers. With SREJ on
+                                     the library holds it to half the modulus (4 on
+                                     modulo 8), so 5..7 only take effect on a go-back-N
+                                     link (--no-xid, or a peer without SREJ).
+              --paclen <bytes>       Largest info field per frame, N1 (PACLEN). 1..{MaxPaclen}
+                                     (default: 256). XID may lower it to the peer's.
+              --retries <n>          Retries before the link is dropped, N2 (RETRY /
+                                     RETRIES). 1..{MaxRetries} (default: 10).
+              --frack <seconds>      Initial ack timeout, T1 (FRACK). 0.5..60, decimals
+                                     allowed (default: 6). Only the starting point: the
+                                     library adapts T1 from the measured round trip
+                                     after the first exchanges.
+              --ack-delay <seconds>  Ack delay, T2 (RESPTIME). 0..30, decimals allowed
+                                     (default: 3). Received frames are acknowledged
+                                     together once this has elapsed; 0 acknowledges
+                                     every frame at once.
+              --no-xid               Skip the XID exchange axcall sends before the SABM
+                                     on a modulo-8 dial. Without it axcall offers SREJ
+                                     (selective retransmit) and its window; with it the
+                                     link is plain go-back-N. Outbound only; a --mod128
+                                     dial the peer accepts negotiates XID after the UA
+                                     regardless.
               -V, --version          Show version info (SDL + runtime libs)
               -h, --help             Show this help
             """);

@@ -45,7 +45,7 @@ public sealed class ConnectedModeTests
                     bannerReceived.TrySetResult(true);
             }));
 
-            // stdin must block until the banner arrives — if it returns EOF
+            // stdin must block until the banner arrives - if it returns EOF
             // immediately, the relay sends DISC before the I-frame arrives
             Console.SetIn(new BlockingReader(cts.Token));
 
@@ -106,7 +106,11 @@ public sealed class ConnectedModeTests
             var status = stderr.ToString();
             output.WriteLine($"stderr: {status}");
             status.Should().Contain("connecting");
-            status.Should().Contain("connected");
+            // The connected line carries the parameters read from the live
+            // session once the link is up. LinBPQ's port is MAXFRAME=4, so the
+            // window it leaves us with is 4 either way; paclen and SREJ depend
+            // on whether this LinBPQ answered the pre-SABM XID probe.
+            status.Should().MatchRegex(@"axcall: connected to PN0TST \(mod-8, window 4, paclen \d+, SREJ (on|off)\)");
             status.Should().Contain("disconnected");
         }
         finally

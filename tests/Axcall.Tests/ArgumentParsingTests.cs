@@ -169,4 +169,171 @@ public sealed class ArgumentParsingTests
         var code = await Program.Main(["--mod128", "G7RUX", "EXTRA", "-s", "M0LTE", "-t", "localhost:8001"]);
         code.Should().Be(2);
     }
+
+    [Fact]
+    public void Defaults_Leave_Link_Parameters_To_The_Library()
+    {
+        // No flag given means null: the library's own default applies and
+        // axcall never restates it.
+        var parsed = Program.ParseArgs(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001"]);
+        parsed.Should().NotBeNull();
+        parsed!.Window.Should().BeNull();
+        parsed.Paclen.Should().BeNull();
+        parsed.Retries.Should().BeNull();
+        parsed.Frack.Should().BeNull();
+        parsed.AckDelay.Should().BeNull();
+        parsed.NoXid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Link_Parameter_Flags_Are_Parsed()
+    {
+        var parsed = Program.ParseArgs([
+            "G7RUX", "-s", "M0LTE", "-t", "localhost:8001",
+            "--window", "2", "--paclen", "128", "--retries", "5",
+            "--frack", "2.5", "--ack-delay", "0.5", "--no-xid"]);
+        parsed.Should().NotBeNull();
+        parsed!.Window.Should().Be(2);
+        parsed.Paclen.Should().Be(128);
+        parsed.Retries.Should().Be(5);
+        parsed.Frack.Should().Be(TimeSpan.FromSeconds(2.5));
+        parsed.AckDelay.Should().Be(TimeSpan.FromSeconds(0.5));
+        parsed.NoXid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Link_Parameters_Apply_In_Listen_Mode()
+    {
+        var parsed = Program.ParseArgs([
+            "-l", "-s", "M0LTE", "-t", "localhost:8001",
+            "--window", "7", "--paclen", "64", "--retries", "3", "--frack", "10", "--ack-delay", "1"]);
+        parsed.Should().NotBeNull();
+        parsed!.Listen.Should().BeTrue();
+        parsed.Window.Should().Be(7);
+        parsed.Paclen.Should().Be(64);
+        parsed.Retries.Should().Be(3);
+        parsed.Frack.Should().Be(TimeSpan.FromSeconds(10));
+        parsed.AckDelay.Should().Be(TimeSpan.FromSeconds(1));
+    }
+
+    [Theory]
+    [InlineData("1", 1)]
+    [InlineData("7", 7)]
+    public void Window_Up_To_7_Is_Accepted_Without_Mod128(string value, int expected)
+    {
+        var parsed = Program.ParseArgs(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", "--window", value]);
+        parsed.Should().NotBeNull();
+        parsed!.Window.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task Window_8_Is_Rejected_Without_Mod128()
+    {
+        // Modulo 8 numbers frames 0..7, so at most 7 can be outstanding.
+        var code = await Program.Main(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", "--window", "8"]);
+        code.Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData("8", 8)]
+    [InlineData("127", 127)]
+    public void Window_Up_To_127_Is_Accepted_With_Mod128(string value, int expected)
+    {
+        // --mod128 after --window still lifts the ceiling: every option is
+        // parsed before any is validated.
+        var parsed = Program.ParseArgs(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", "--window", value, "--mod128"]);
+        parsed.Should().NotBeNull();
+        parsed!.Mod128.Should().BeTrue();
+        parsed.Window.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task Window_128_Is_Rejected_Even_With_Mod128()
+    {
+        var code = await Program.Main(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", "--mod128", "--window", "128"]);
+        code.Should().Be(2);
+    }
+
+    [Fact]
+    public void Ack_Delay_Zero_Is_Accepted()
+    {
+        // Zero is a documented value: acknowledge every frame at once.
+        var parsed = Program.ParseArgs(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", "--ack-delay", "0"]);
+        parsed.Should().NotBeNull();
+        parsed!.AckDelay.Should().Be(TimeSpan.Zero);
+    }
+
+    [Theory]
+    [InlineData("--paclen", "1", 1)]
+    [InlineData("--paclen", "1024", 1024)]
+    [InlineData("--retries", "1", 1)]
+    [InlineData("--retries", "255", 255)]
+    public void Count_Bounds_Are_Inclusive(string flag, string value, int expected)
+    {
+        var parsed = Program.ParseArgs(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", flag, value]);
+        parsed.Should().NotBeNull();
+        (flag == "--paclen" ? parsed!.Paclen : parsed!.Retries).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("--frack", "0.5", 0.5)]
+    [InlineData("--frack", "60", 60)]
+    [InlineData("--ack-delay", "30", 30)]
+    public void Timer_Bounds_Are_Inclusive(string flag, string value, double expectedSeconds)
+    {
+        var parsed = Program.ParseArgs(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", flag, value]);
+        parsed.Should().NotBeNull();
+        (flag == "--frack" ? parsed!.Frack : parsed!.AckDelay).Should().Be(TimeSpan.FromSeconds(expectedSeconds));
+    }
+
+    [Theory]
+    [InlineData("--window", "0")]
+    [InlineData("--window", "-1")]
+    [InlineData("--window", "1.5")]
+    [InlineData("--window", "notanumber")]
+    [InlineData("--paclen", "0")]
+    [InlineData("--paclen", "1025")]
+    [InlineData("--paclen", "-256")]
+    [InlineData("--paclen", "notanumber")]
+    [InlineData("--retries", "0")]
+    [InlineData("--retries", "256")]
+    [InlineData("--retries", "notanumber")]
+    // Below the half-second floor, above the minute ceiling, and the number
+    // forms the parser deliberately refuses (sign, exponent, NaN, infinity).
+    [InlineData("--frack", "0")]
+    [InlineData("--frack", "0.4")]
+    [InlineData("--frack", "61")]
+    [InlineData("--frack", "-5")]
+    [InlineData("--frack", "1e1")]
+    [InlineData("--frack", "NaN")]
+    [InlineData("--frack", "notanumber")]
+    [InlineData("--ack-delay", "-0.1")]
+    [InlineData("--ack-delay", "31")]
+    [InlineData("--ack-delay", "Infinity")]
+    [InlineData("--ack-delay", "notanumber")]
+    public async Task Invalid_Link_Parameter_Returns_Exit_Code_2(string flag, string value)
+    {
+        var code = await Program.Main(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", flag, value]);
+        code.Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData("--window")]
+    [InlineData("--paclen")]
+    [InlineData("--retries")]
+    [InlineData("--frack")]
+    [InlineData("--ack-delay")]
+    public async Task Missing_Link_Parameter_Value_Returns_Exit_Code_2(string flag)
+    {
+        var code = await Program.Main(["G7RUX", "-s", "M0LTE", "-t", "localhost:8001", flag]);
+        code.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task No_Xid_Does_Not_Take_A_Value()
+    {
+        // The token after --no-xid is the destination, so a second one is unexpected.
+        var code = await Program.Main(["--no-xid", "G7RUX", "EXTRA", "-s", "M0LTE", "-t", "localhost:8001"]);
+        code.Should().Be(2);
+    }
 }
