@@ -40,7 +40,7 @@ pub="$root/artifacts/publish/$rid"
 stage="$root/artifacts/deb/$rid"
 out="$root/artifacts/axcall_${deb_version}_${arch}.deb"
 
-echo "==> publish $rid (self-contained, single-file, invariant globalization)"
+echo "==> publish $rid (self-contained, single-file, trimmed, R2R, invariant globalization)"
 rm -rf "$pub"
 dotnet publish "$proj" -c Release -r "$rid" --self-contained true \
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \

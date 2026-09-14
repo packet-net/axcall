@@ -15,6 +15,34 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
+  <!-- Publish size and startup. Only when publishing for a specific runtime:
+       ReadyToRun needs a RID, so a bare `dotnet publish` would fail otherwise.
+
+       Measured on linux-x64 at 0.4.0, single-file self-contained throughout:
+
+         plain                74.4 MB   23 ms to start
+         trimmed              15.7 MB   52 ms
+         trimmed + R2R        21.5 MB   21 ms      <- this
+         NativeAOT             3.9 MB    4 ms
+
+       Trimming alone is smaller but starts slower, because the runtime pack
+       ships its framework assemblies ReadyToRun-compiled and trimming rewrites
+       them, throwing that native code away. Putting R2R back costs 6 MB and
+       buys the startup back, which matters now axcall is something you can put
+       in a pipeline. NativeAOT wins on both counts but cannot cross-link
+       linux-arm (armhf) from an x64 runner, and all three architectures build
+       on the one runner today.
+
+       TrimmerSingleWarn=false lists every trim warning rather than one summary.
+       With TreatWarningsAsErrors from Directory.Build.props that makes any
+       future reflection the trimmer cannot follow a build failure, which is the
+       guard that keeps this safe. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <PublishTrimmed>true</PublishTrimmed>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Packet.Core" />
     <PackageReference Include="Packet.Ax25" />
