@@ -40,15 +40,37 @@ pub="$root/artifacts/publish/$rid"
 stage="$root/artifacts/deb/$rid"
 out="$root/artifacts/axcall_${deb_version}_${arch}.deb"
 
-echo "==> publish $rid (self-contained, single-file, trimmed, R2R, invariant globalization)"
+# NativeAOT does not cross-link, so an arm64 package has to be built on arm64.
+# The release workflow does that on a native runner; locally this is a clearer
+# failure than several screens of clang output.
+if [ "$rid" = "linux-arm64" ] && [ "$(uname -m)" != "aarch64" ]; then
+  echo "linux-arm64 is a NativeAOT build and must be built on an arm64 machine." >&2
+  echo "The release workflow uses an arm64 runner for it." >&2
+  exit 2
+fi
+
+# How to publish is the csproj's business, not this script's: NativeAOT
+# everywhere with a native runner, trimmed single-file plus ReadyToRun for
+# armhf. Passing PublishSingleFile here would fight the AOT builds, which
+# produce a native binary with nothing to bundle.
+#
+# This script does not cross-compile NativeAOT. linux-x64 and linux-arm64 are
+# each built on a runner of their own architecture; only armhf is cross-built,
+# and it is the one that does not use AOT.
+echo "==> publish $rid (strategy from the csproj, invariant globalization)"
 rm -rf "$pub"
 dotnet publish "$proj" -c Release -r "$rid" --self-contained true \
-  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
   -p:DebugType=none -p:DebugSymbols=false \
   -p:Version="$version" -p:InformationalVersion="$version" \
   -v minimal -o "$pub"
 
 [ -f "$pub/axcall" ] || { echo "publish produced no axcall binary" >&2; exit 1; }
+
+# Guard the architecture: a .deb carrying a binary for the wrong machine would
+# install cleanly and then fail to exec, which is a miserable way to find out.
+want_arch="$(case "$arch" in amd64) echo x86-64 ;; arm64) echo aarch64 ;; armhf) echo ARM ;; esac)"
+file "$pub/axcall" | grep -q "$want_arch" || {
+  echo "published binary is not $want_arch: $(file -b "$pub/axcall")" >&2; exit 1; }
 
 echo "==> stage .deb tree for $arch"
 rm -rf "$stage"
@@ -100,12 +122,38 @@ printf 'axcall (%s) unstable; urgency=medium\n\n  * Release %s. See https://gith
   | gzip -9nc > "$stage/usr/share/doc/axcall/changelog.Debian.gz"
 chmod 0644 "$stage/usr/share/doc/axcall/changelog.Debian.gz"
 
+# Dependencies, read off the binary rather than assumed, because the two publish
+# strategies differ: a NativeAOT build links libgcc, libstdc++ and zlib
+# statically and needs only libc, while the trimmed single-file build still
+# wants all of them. Declaring the union on an AOT package would pull in
+# libraries it never opens.
+declare -A soname_to_pkg=(
+  # The dynamic loader ships inside libc6, whichever architecture names it.
+  [ld-linux-x86-64.so.2]=libc6
+  [ld-linux-aarch64.so.1]=libc6
+  [ld-linux-armhf.so.3]=libc6
+  [libc.so.6]=libc6
+  [libm.so.6]=libc6
+  [libgcc_s.so.1]=libgcc-s1
+  [libstdc++.so.6]="libstdc++6"
+  [libz.so.1]=zlib1g
+)
+depends=""
+while read -r soname; do
+  pkg="${soname_to_pkg[$soname]:-}"
+  [ -n "$pkg" ] || { echo "unmapped shared library dependency: $soname" >&2; exit 1; }
+  case ",$depends," in *",$pkg,"*) ;; *) depends="${depends:+$depends,}$pkg" ;; esac
+done < <(objdump -p "$pub/axcall" | awk '/NEEDED/ {print $2}' | sort -u)
+depends="${depends//,/, }"
+echo "==> depends: $depends"
+
 # Installed-Size is in KiB, and dpkg-deb does not compute it for us.
 installed_size="$(du -s -k --apparent-size "$stage" | cut -f1)"
 
 sed -e "s/@VERSION@/$deb_version/" \
     -e "s/@ARCH@/$arch/" \
     -e "s/@INSTALLED_SIZE@/$installed_size/" \
+    -e "s/@DEPENDS@/$depends/" \
     "$root/packaging/control.in" > "$stage/DEBIAN/control"
 
 # md5sums is optional but expected; dpkg --verify and debsums use it.
