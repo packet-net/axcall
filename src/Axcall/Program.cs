@@ -26,7 +26,11 @@ internal sealed record ParsedArgs(
     int? Retries,
     TimeSpan? Frack,
     TimeSpan? AckDelay,
-    bool NoXid);
+    bool NoXid,
+    TimeSpan? IdleTimeout,
+    bool Wait,
+    bool Silent,
+    bool TraceFrames);
 
 public static class Program
 {
@@ -49,6 +53,13 @@ public static class Program
 
     // --retries (N2): the conventional 8-bit RETRY ceiling.
     internal const int MaxRetries = 255;
+
+    // -T (idle timeout), in seconds. The floor is the kernel version's, one
+    // millisecond. The ceiling is the same timer cap as --keepalive: a longer
+    // wait than a Task.Delay can hold would fail once the link was up rather
+    // than at the command line.
+    internal const double MinIdleTimeoutSeconds = 0.001;
+    internal const double MaxIdleTimeoutSeconds = MaxKeepaliveSeconds;
 
     // --frack (initial T1) and --ack-delay (T2), in seconds.
     internal const double MinFrackSeconds = 0.5;
@@ -125,6 +136,10 @@ public static class Program
                 Frack = parsed.Frack,
                 AckDelay = parsed.AckDelay,
                 NoXid = parsed.NoXid,
+                IdleTimeout = parsed.IdleTimeout,
+                WaitForRemoteDisconnect = parsed.Wait,
+                Silent = parsed.Silent,
+                TraceFrames = parsed.TraceFrames,
             };
             await using var relay = new SessionRelay(modem, parsed.MyCall, options: relayOptions);
 
@@ -177,6 +192,10 @@ public static class Program
         string? frackArg = null;
         string? ackDelayArg = null;
         bool noXid = false;
+        string? idleTimeoutArg = null;
+        bool wait = false;
+        bool silent = false;
+        bool traceFrames = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -222,18 +241,23 @@ public static class Program
                 case "-8":      // UTF-8: axcall is always UTF-8
                     break;
 
-                // Classic spellings we cannot honour, each failing with its own
-                // reason rather than a bare "unknown option".
+                case "-T" or "--idle-timeout":
+                    if (++i >= args.Length) return Fail("missing value for -T (expected seconds)");
+                    idleTimeoutArg = args[i];
+                    break;
+                case "-W" or "--wait":
+                    wait = true;
+                    break;
+                case "-S" or "--silent":
+                    silent = true;
+                    break;
+                case "-d" or "--debug":
+                    traceFrames = true;
+                    break;
+
+                // The one classic spelling we cannot honour.
                 case "-i":
                     return Fail("-i (IBM850) is not supported; axcall is UTF-8 only");
-                case "-T":
-                    return Fail("-T (idle timeout) is not implemented yet; see issue #31");
-                case "-W":
-                    return Fail("-W (wait for remote disconnect) is not implemented yet; see issue #32");
-                case "-S":
-                    return Fail("-S (silent) is not implemented yet; see issue #33");
-                case "-d":
-                    return Fail("-d (frame tracing) is not implemented yet; see issue #34");
 
                 // axcall's own options, long only so the short letters stay
                 // free for their classic meanings.
@@ -307,7 +331,7 @@ public static class Program
             var extra = positionals[expectedPositionals];
             return Fail(listen
                 ? $"--listen takes no destination (got '{extra}')"
-                : $"digipeater paths are not supported yet (got '{extra}'); see issue #35");
+                : $"digipeater paths are not supported (got '{extra}'); axcall dials direct only");
         }
 
         string? err;
@@ -399,6 +423,14 @@ public static class Program
             ackDelay = TimeSpan.FromSeconds(a);
         }
 
+        TimeSpan? idleTimeout = null;
+        if (idleTimeoutArg is not null)
+        {
+            if (!TryParseSeconds(idleTimeoutArg, out var t) || t < MinIdleTimeoutSeconds || t > MaxIdleTimeoutSeconds)
+                return Fail(FormattableString.Invariant($"invalid idle timeout: {idleTimeoutArg} (must be {MinIdleTimeoutSeconds}..{MaxIdleTimeoutSeconds} seconds)"));
+            idleTimeout = TimeSpan.FromSeconds(t);
+        }
+
         // -s beats the port's own callsign, the way it overrode the axports
         // entry under the kernel stack.
         Callsign myCall;
@@ -428,7 +460,8 @@ public static class Program
 
         return new ParsedArgs(
             myCall, transport, baudRate, listen, target, mod128, TimeSpan.FromSeconds(keepaliveSeconds),
-            window, paclen, retries, frack, ackDelay, noXid);
+            window, paclen, retries, frack, ackDelay, noXid,
+            idleTimeout, wait, silent, traceFrames);
     }
 
     // A plain unsigned whole number: no sign, whitespace, separators or exponent.
@@ -484,6 +517,21 @@ public static class Program
                                      back to SABM if the peer answers FRMR or DM.
                                      Inbound sessions (--listen) use whichever the
                                      caller asks for.
+              -T <seconds>           Close the link when no data has moved either way for
+                                     this long. Decimals allowed, so 0.5 is 500 ms; exits
+                                     {SessionRelay.IdleTimeoutExitCode} when it fires. This DROPS an idle link, where
+                                     --keepalive keeps one up. Only data counts: a
+                                     keepalive poll does not reset it.
+              -W                     On end of input, leave the link up and keep printing
+                                     until the remote hangs up, instead of closing at
+                                     once. Without it, "echo q | axcall ..." closes
+                                     before the reply arrives. Pair it with -T, or a peer
+                                     that never hangs up leaves axcall waiting for ever.
+              -S                     Suppress the status lines. Errors are still
+                                     reported: this silences progress, not diagnostics.
+              -d                     Write one line per frame, both directions, to
+                                     stderr. Independent of -S, so -d -S gives a bare
+                                     trace.
               -b l|e                 Backoff. Accepted and ignored: the library adapts T1
                                      from the measured round trip and has no selector.
               -r, -t, -R, -8         Raw mode, talk mode, no remote commands, UTF-8.
@@ -525,6 +573,12 @@ public static class Program
                                      regardless.
               -V, --version          Same as -v.
               --help                 Same as -h.
+
+            -T, -W, -S and -d also have the long spellings --idle-timeout, --wait,
+            --silent and --debug.
+
+            Exit status: 0 the link closed, 1 fatal, 2 usage, 3 could not open the
+            modem, 4 connect refused or timed out, {SessionRelay.IdleTimeoutExitCode} idle timeout.
 
             The ports file binds a name to a transport, a callsign and optional link
             defaults, so "axcall radio gb7rdg" works with nothing else on the line.

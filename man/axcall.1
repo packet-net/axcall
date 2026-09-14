@@ -95,6 +95,69 @@ for extended (modulo 128, AX.25 v2.2). An extended dial falls back to modulo 8
 if the peer answers FRMR or DM, so the call still goes through. Inbound sessions
 use whichever the caller asks for.
 .TP
+.BI \-T " timeout"
+Close the connection automatically when no data has been transferred in either
+direction for this many seconds. Decimals are allowed, so a value of 0.5 is
+500 ms. axcall exits 5 when it fires.
+.IP
+This is the opposite of
+.BR \-\-keepalive ,
+which is T3 and polls to hold an idle link
+.IR up .
+Only data resets it: a keepalive poll does not count, matching the kernel
+version, where an RR never woke the socket. Unlike the kernel version, axcall
+hangs up properly and waits for the handshake rather than dropping the socket
+and leaving the peer to time out.
+.TP
+.B \-W
+Wait for the remote to disconnect even when standard input has closed. Normally
+.B "echo q | axcall radio gb7rdg"
+closes the moment
+.B echo
+finishes, so the reply from gb7rdg is never seen. With
+.B \-W
+axcall stops reading input but leaves the link up and keeps printing until the
+peer hangs up. Pair it with
+.BR \-T ,
+or a peer that never hangs up will leave axcall waiting for ever.
+.TP
+.B \-S
+Be silent: suppress the status lines. Useful in shell scripts. Errors are still
+reported, because this silences progress and not diagnostics. It matters less
+here than it did in the kernel version, which printed its banner and
+.RB \(lq "*** Connected to" \(rq
+to standard output; axcall keeps standard output to received data alone.
+.TP
+.B \-d
+Write one line per frame, in both directions, to standard error. The kernel
+version's
+.B \-d
+set
+.B SO_DEBUG
+on the socket; this reports the frames axcall itself sent and received:
+.IP
+.in +4n
+.EX
+18:45:51.123 > M0LTE\-7>GB7RDG SABM C P
+18:45:51.520 < GB7RDG>M0LTE\-7 UA R F
+18:45:51.521 > M0LTE\-7>GB7RDG I C ns=0 nr=0 pid=F0 len=12
+.EE
+.in
+.IP
+The direction, the addresses, the frame type, then
+.B C
+or
+.B R
+for command or response and
+.B P
+or
+.B F
+for the poll/final bit, then whatever that frame type carries. Independent of
+.BR \-S ,
+so
+.B \-d \-S
+gives a bare trace with no status around it.
+.TP
 .BI \-b " l|e"
 The method of backoff. Accepted and ignored: this axcall adapts T1 from the
 measured round trip and has no linear/exponential selector. The argument is
@@ -181,6 +244,10 @@ The same as
 .B \-\-help
 The same as
 .BR \-h .
+.PP
+.BR \-T ", " \-W ", " \-S " and " \-d
+also have the long spellings
+.BR \-\-idle\-timeout ", " \-\-wait ", " \-\-silent " and " \-\-debug .
 .SH PORTS FILE
 The ports file binds a short name to a transport, a callsign and optional link
 defaults, so that
@@ -233,6 +300,11 @@ TCP connection was refused.
 .TP
 .B 4
 The connect was refused by the peer (DM) or timed out.
+.TP
+.B 5
+The
+.B \-T
+idle timeout fired and closed the link.
 .PP
 Note that the kernel version exits 0 even when the connect fails, so a script
 that silently tolerated a dead link will start reporting one.
@@ -264,9 +336,6 @@ for help is near\-universal. On its own it prints the usage summary; alongside
 other arguments it is a usage error, because printing help and exiting 0 would
 look to a ported script like a successful call.
 .PP
-.BR \-T ", " \-W ", " \-S " and " \-d
-are recognised but not yet implemented, and say so.
-.PP
 .B \-i
 (IBM850) is refused. Ignoring it would produce mojibake rather than nothing.
 .PP
@@ -274,7 +343,7 @@ A digipeater path after the
 .IR destination ,
 with or without the literal
 .BR via ,
-is recognised but not yet supported, and is refused rather than ignored.
+is refused rather than ignored. axcall dials direct only.
 .PP
 NET/ROM and Rose are not supported. The kernel version picked the address family
 by trying the port name against
