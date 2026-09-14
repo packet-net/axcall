@@ -31,7 +31,8 @@ internal sealed record ParsedArgs(
     bool Wait,
     bool Silent,
     bool TraceFrames,
-    bool Binary);
+    bool Binary,
+    ChannelParams Channel);
 
 public static class Program
 {
@@ -125,6 +126,29 @@ public static class Program
             return Err($"failed to open modem: {ex.Message}", 3);
         }
 
+        // Channel access before anything else goes out, so the first frame is
+        // keyed with the settings that were asked for rather than the ones the
+        // TNC happened to boot with.
+        if (parsed.Channel.Any)
+        {
+            if (modem is not ICsmaChannelParams csma)
+            {
+                return Err($"this transport cannot set KISS channel parameters: {parsed.Transport}", 2);
+            }
+            try
+            {
+                await parsed.Channel.ApplyAsync(csma, appCts.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return Err($"failed to set KISS parameters: {ex.Message}", 3);
+            }
+            if (!parsed.Silent)
+            {
+                await Console.Error.WriteLineAsync($"axcall: TNC set to {parsed.Channel}").ConfigureAwait(false);
+            }
+        }
+
         try
         {
             var relayOptions = new SessionRelayOptions
@@ -198,6 +222,10 @@ public static class Program
         bool wait = false;
         bool silent = false;
         bool traceFrames = false;
+        string? txDelayArg = null;
+        string? persistArg = null;
+        string? slotTimeArg = null;
+        string? txTailArg = null;
         // -r and -t select the same thing from opposite ends, so the last one
         // on the line wins, as it does in the kernel version.
         bool binary = false;
@@ -312,6 +340,26 @@ public static class Program
                     break;
                 case "--no-xid":
                     noXid = true;
+                    break;
+
+                // KISS channel access. kissparms(8) set these per interface
+                // under the kernel stack; axcall holds the only handle on the
+                // TNC now, so it has to be able to.
+                case "--txdelay":
+                    if (++i >= args.Length) return Fail("missing value for --txdelay (expected milliseconds)");
+                    txDelayArg = args[i];
+                    break;
+                case "--persist":
+                    if (++i >= args.Length) return Fail("missing value for --persist (expected 0..255)");
+                    persistArg = args[i];
+                    break;
+                case "--slottime":
+                    if (++i >= args.Length) return Fail("missing value for --slottime (expected milliseconds)");
+                    slotTimeArg = args[i];
+                    break;
+                case "--txtail":
+                    if (++i >= args.Length) return Fail("missing value for --txtail (expected milliseconds)");
+                    txTailArg = args[i];
                     break;
                 default:
                     if (args[i].StartsWith('-')) return Fail($"unknown option: {args[i]}");
@@ -443,6 +491,35 @@ public static class Program
             idleTimeout = TimeSpan.FromSeconds(t);
         }
 
+        // Channel access. Each parameter falls back to the port's own value
+        // independently, so a ports file can carry a TNC's settings and a flag
+        // can still override one of them for a single call.
+        byte? txDelay = null, persist = null, slotTime = null, txTail = null;
+
+        if (txDelayArg is not null)
+        {
+            if (!ChannelParams.TryParseTimerMs(txDelayArg, out var v, out err)) return Fail($"invalid txdelay: {err}");
+            txDelay = v;
+        }
+        if (persistArg is not null)
+        {
+            if (!ChannelParams.TryParsePersist(persistArg, out var v, out err)) return Fail($"invalid persist: {err}");
+            persist = v;
+        }
+        if (slotTimeArg is not null)
+        {
+            if (!ChannelParams.TryParseTimerMs(slotTimeArg, out var v, out err)) return Fail($"invalid slottime: {err}");
+            slotTime = v;
+        }
+        if (txTailArg is not null)
+        {
+            if (!ChannelParams.TryParseTimerMs(txTailArg, out var v, out err)) return Fail($"invalid txtail: {err}");
+            txTail = v;
+        }
+
+        var channel = (entry?.Channel ?? ChannelParams.None)
+            .OverriddenBy(new ChannelParams(txDelay, persist, slotTime, txTail));
+
         // -s beats the port's own callsign, the way it overrode the axports
         // entry under the kernel stack.
         Callsign myCall;
@@ -473,7 +550,7 @@ public static class Program
         return new ParsedArgs(
             myCall, transport, baudRate, listen, target, mod128, TimeSpan.FromSeconds(keepaliveSeconds),
             window, paclen, retries, frack, ackDelay, noXid,
-            idleTimeout, wait, silent, traceFrames, binary);
+            idleTimeout, wait, silent, traceFrames, binary, channel);
     }
 
     // A plain unsigned whole number: no sign, whitespace, separators or exponent.
@@ -586,6 +663,16 @@ public static class Program
                                      (default: 3). Received frames are acknowledged
                                      together once this has elapsed; 0 acknowledges
                                      every frame at once.
+              --txdelay <ms>         KISS TXDELAY: how long the TNC holds the carrier
+                                     before sending data. Milliseconds, in steps of 10,
+                                     up to {ChannelParams.MaxTimerMs}.
+              --persist <n>          KISS persistence, 0..255. With --slottime this is
+                                     the p-persistent CSMA the TNC uses to decide when
+                                     it may key up on a busy channel.
+              --slottime <ms>        KISS slot time. Milliseconds, in steps of 10, up
+                                     to {ChannelParams.MaxTimerMs}.
+              --txtail <ms>          KISS TXTAIL. Milliseconds, in steps of 10.
+                                     Deprecated on modern TNCs.
               --no-xid               Skip the XID exchange axcall sends before the SABM
                                      on a modulo-8 dial. Without it axcall offers SREJ
                                      (selective retransmit) and its window; with it the
@@ -601,6 +688,11 @@ public static class Program
             Exit status: 0 the link closed, 1 fatal, 2 usage, 3 could not open the
             modem, 4 connect refused or timed out, {SessionRelay.IdleTimeoutExitCode} idle timeout.
 
+            The four KISS settings above are what kissparms(8) used to set per
+            interface. They describe the radio channel rather than one connection, so
+            the ports file is usually the better home for them. Nothing is sent unless
+            asked for: a TNC set up deliberately is left alone.
+
             The ports file binds a name to a transport, a callsign and optional link
             defaults, so "axcall radio gb7rdg" works with nothing else on the line.
             Read from {PortsFile.SystemPath} then {PortsFile.UserPath ?? "~/.config/axcall/ports"},
@@ -611,6 +703,11 @@ public static class Program
               # name   callsign   transport            paclen  window  description
               radio    M0LTE-7    /dev/ttyUSB0:57600   256     4       144.800 MHz
               node     M0LTE-7    10.45.0.66:8001      -       -       LinBPQ
+
+            After the window column, txdelay=, persist=, slottime= and txtail= may
+            appear before the description:
+
+              radio    M0LTE-7    /dev/ttyUSB0:57600   256  4  txdelay=300 persist=63
 
             Precedence throughout: a command-line flag beats the ports file, which
             beats the library default.

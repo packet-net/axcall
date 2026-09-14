@@ -79,6 +79,14 @@ No `/etc/axcall/ports` is shipped. It would be a dpkg conffile and would prompt 
 
 `scripts/build-deb.sh <rid> <version>` builds one package locally, and `scripts/deb-install-smoke.sh <deb>` proves it installs, runs and purges on a pristine Debian and Ubuntu in throwaway containers. Both run in the release workflow.
 
+## One thing classic did not have
+
+The four KISS channel-access parameters, `--txdelay`, `--persist`, `--slottime` and `--txtail`, have no counterpart in kernel `axcall`, which set exactly four socket options (`AX25_EXTSEQ`, `AX25_WINDOW`, `AX25_PACLEN`, `AX25_BACKOFF`) and never mentions persistence anywhere in `call.c`.
+
+That was not an omission, it was the architecture. Those four are per-connection link parameters, so a connection program owned them. Channel access is per-interface, and belonged to [`kissparms(8)`](https://linux.die.net/man/8/kissparms) from ax25-tools, which set it once on the port for every program using it.
+
+The separation is gone. There is no `kissattach` binding the port and no `kissparms` configuring it; axcall holds the only handle on the TNC, so if axcall does not set these, nothing does. They take milliseconds as kissparms did, and nothing is sent unless asked for, so a TNC set up deliberately is left alone. The ports file is usually the better home for them.
+
 ## Deliberate deviations
 
 **`-h` means `--help`.** In classic it selects slave mode, one of three curses screen modes that do not exist here. `-h` for help is near-universal, so it wins. But `-h` alone means help, and `-h` alongside other arguments is a usage error:

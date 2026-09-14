@@ -15,7 +15,16 @@
 #
 # The transport column takes a serial device, optionally with a baud rate
 # (the default is 57600), or a KISS-over-TCP host and port.
+#
+# After the window column you may set the KISS channel-access parameters that
+# kissparms(8) used to set per interface: txdelay, persist, slottime and
+# txtail. The three timers are in milliseconds, in steps of 10; persist is
+# 0-255. Nothing is sent to the TNC unless you ask for it here or on the
+# command line, so a TNC you have set up deliberately is left alone.
 
 # name   callsign   transport            paclen  window  description
 #radio   M0LTE-7    /dev/ttyUSB0:57600   256     4       144.800 MHz
 #node    M0LTE-7    10.45.0.66:8001      -       -       LinBPQ
+
+# With channel-access settings for a slow-keying radio:
+#slow    M0LTE-7    /dev/ttyUSB1:9600    256     4       txdelay=500 persist=32 slottime=100   2m brick

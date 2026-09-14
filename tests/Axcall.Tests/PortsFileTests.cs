@@ -270,6 +270,58 @@ public sealed class PortsFileTests
     }
 
     [Fact]
+    public void Channel_Settings_Are_Read_From_Key_Value_Columns()
+    {
+        using var _ = PortsFileScope.With(
+            "radio  M0LTE-7  /dev/ttyUSB0  256  4  txdelay=300 persist=63 slottime=100 txtail=20  144.800 MHz");
+
+        var parsed = Program.ParseArgs(["radio", "GB7RDG"]);
+
+        parsed.Should().NotBeNull();
+        // Held in KISS units: the three timers in steps of 10 ms.
+        parsed!.Channel.TxDelay.Should().Be(30);
+        parsed.Channel.Persist.Should().Be(63);
+        parsed.Channel.SlotTime.Should().Be(10);
+        parsed.Channel.TxTail.Should().Be(2);
+    }
+
+    [Fact]
+    public void A_Description_Containing_An_Equals_Sign_Is_Not_A_Setting()
+    {
+        using var _ = PortsFileScope.With("radio  M0LTE-7  /dev/ttyUSB0  -  -  band=2m is just text");
+
+        PortsFile.TryParseLine("radio  M0LTE-7  /dev/ttyUSB0  -  -  band=2m is just text", out var entry, out var error)
+            .Should().BeTrue();
+        error.Should().BeNull();
+        entry!.Channel.Any.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Flags_Override_Channel_Settings_One_At_A_Time()
+    {
+        using var _ = PortsFileScope.With("radio  M0LTE-7  /dev/ttyUSB0  -  -  txdelay=300 persist=63");
+
+        var parsed = Program.ParseArgs(["radio", "GB7RDG", "--persist", "128"]);
+
+        parsed.Should().NotBeNull();
+        // The flag replaces persist and leaves txdelay from the file alone.
+        parsed!.Channel.Persist.Should().Be(128);
+        parsed.Channel.TxDelay.Should().Be(30);
+    }
+
+    [Theory]
+    [InlineData("radio  M0LTE-7  /dev/ttyUSB0  -  -  txdelay=305")]
+    [InlineData("radio  M0LTE-7  /dev/ttyUSB0  -  -  txdelay=3000")]
+    [InlineData("radio  M0LTE-7  /dev/ttyUSB0  -  -  persist=256")]
+    [InlineData("radio  M0LTE-7  /dev/ttyUSB0  -  -  slottime=notanumber")]
+    public void Malformed_Channel_Settings_Are_Reported(string line)
+    {
+        PortsFile.TryParseLine(line, out var entry, out var error).Should().BeFalse();
+        entry.Should().BeNull();
+        error.Should().NotBeNullOrEmpty();
+    }
+
+    [Fact]
     public void Baud_Suffix_Applies_When_No_Flag_Overrides_It()
     {
         using var _ = PortsFileScope.With("radio  M0LTE-7  /dev/ttyUSB0:19200");

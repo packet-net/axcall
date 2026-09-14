@@ -411,6 +411,52 @@ public sealed class ArgumentParsingTests
         code.Should().Be(2);
     }
 
+    // KISS channel access.
+
+    [Fact]
+    public void Channel_Flags_Are_Parsed_In_Kiss_Units()
+    {
+        var parsed = Program.ParseArgs(Line("--txdelay", "300", "--persist", "63", "--slottime", "100", "--txtail", "20"));
+
+        parsed.Should().NotBeNull();
+        parsed!.Channel.TxDelay.Should().Be(30);
+        parsed.Channel.Persist.Should().Be(63);
+        parsed.Channel.SlotTime.Should().Be(10);
+        parsed.Channel.TxTail.Should().Be(2);
+    }
+
+    [Fact]
+    public void No_Channel_Flags_Means_Nothing_Is_Sent()
+    {
+        // A TNC set up deliberately is left alone.
+        Program.ParseArgs(Line())!.Channel.Any.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("--txdelay", "305")]
+    [InlineData("--txdelay", "2560")]
+    [InlineData("--txdelay", "notanumber")]
+    [InlineData("--slottime", "15")]
+    [InlineData("--txtail", "-10")]
+    [InlineData("--persist", "256")]
+    [InlineData("--persist", "-1")]
+    public async Task Invalid_Channel_Values_Return_Exit_Code_2(string flag, string value)
+    {
+        var code = await Program.Main(Line(flag, value));
+        code.Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData("--txdelay")]
+    [InlineData("--persist")]
+    [InlineData("--slottime")]
+    [InlineData("--txtail")]
+    public async Task Missing_Channel_Value_Returns_Exit_Code_2(string flag)
+    {
+        var code = await Program.Main([.. Line(), flag]);
+        code.Should().Be(2);
+    }
+
     // Link parameters.
 
     [Fact]

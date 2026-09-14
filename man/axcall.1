@@ -252,6 +252,44 @@ The acknowledgement delay, T2 (RESPTIME). 0 to 30, decimals allowed, default 3.
 Received frames are acknowledged together once this has elapsed; 0 acknowledges
 every frame at once.
 .TP
+.BI \-\-txdelay " ms"
+KISS TXDELAY: how long the TNC holds the carrier before it starts sending data.
+Milliseconds, in steps of 10, up to 2550.
+.TP
+.BI \-\-persist " n"
+KISS persistence, 0 to 255. With
+.B \-\-slottime
+this is the p-persistent CSMA the TNC uses to decide when it may key up on a
+busy channel.
+.TP
+.BI \-\-slottime " ms"
+KISS slot time. Milliseconds, in steps of 10, up to 2550.
+.TP
+.BI \-\-txtail " ms"
+KISS TXTAIL. Milliseconds, in steps of 10. Deprecated on modern TNCs, and
+present because old firmware wants it.
+.IP
+These four are the KISS channel-access parameters, and they are the one part of
+this program that the kernel AX.25
+.B axcall
+had no equivalent for, because it did not need one. They describe the radio
+channel rather than any one connection, so under the kernel stack they were set
+per interface by
+.BR kissparms (8),
+once, for every program using the port. There is no
+.BR kissattach (8)
+and no shared interface now: axcall holds the only handle on the TNC, so if it
+does not set them, nothing does.
+.IP
+Milliseconds are used here because that is what
+.BR kissparms (8)
+took. The wire unit is 10 ms, so a value that is not a multiple of ten is
+refused rather than rounded. Nothing is sent unless asked for, so a TNC that has
+been set up deliberately is left alone.
+.IP
+The ports file is usually the better home for these: that a radio needs 300 ms
+of TX delay is a fact about the port, not about a call made over it.
+.TP
 .B \-\-no\-xid
 Skip the XID exchange sent before the SABM on a modulo\-8 dial. Without it axcall
 offers SREJ (selective retransmit) and its window; with it the link is plain
@@ -302,6 +340,21 @@ radio    M0LTE\-7    /dev/ttyUSB0:57600   256     4       144.800 MHz
 node     M0LTE\-7    10.45.0.66:8001      \-       \-       LinBPQ
 .EE
 .in
+.PP
+After the window column, any number of
+.IR key = value
+settings may appear before the description. The recognised keys are
+.BR txdelay ", " persist ", " slottime " and " txtail ,
+in the same units as the options above:
+.PP
+.in +4n
+.EX
+radio  M0LTE\-7  /dev/ttyUSB0:57600  256  4  txdelay=300 persist=63  144.800 MHz
+.EE
+.in
+.PP
+A token is only read as a setting if its key is one of those four, so a
+description is free to contain an equals sign.
 .PP
 .I /etc/axcall/ports
 is read first and
