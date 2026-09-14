@@ -14,6 +14,8 @@ There are two answers to that, and they are not variations on one idea. They ser
 
 A is cheap, useful immediately, and limited to streams. B is a bigger piece of work, narrower in who wants it, and the only one that gives you `ping`, UDP, or a remote site's whole LAN.
 
+Tracked as #44 (Path A) and #45 (Path B).
+
 ## Path A: the stream proxy
 
 ### Why it is the natural shape
