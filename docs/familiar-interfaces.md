@@ -128,7 +128,7 @@ sudo ip route add 192.168.7.0/24 via 44.131.20.2 dev ax0
 
 **TUN, not TAP.** AX.25 is not Ethernet. TAP would force you to invent ARP-over-AX.25 and carry 14 bytes of Ethernet header on a channel whose paclen is 256. The kernel stack did this at layer 3 and so should we.
 
-**A static callsign-to-IP map, not ARP.** On a slow shared channel a config file beats a discovery protocol. PID 0xCD exists for AX.25 ARP; do not use it.
+**Resolve outbound from a static map, but answer ARP.** On a slow shared channel a config file beats a discovery protocol for deciding who to send to:
 
 ```
 # /etc/axcall/axtun
@@ -137,13 +137,38 @@ sudo ip route add 192.168.7.0/24 via 44.131.20.2 dev ax0
 44.131.20.0/24  broadcast   QST-0
 ```
 
-**UI frames, not connected mode.** This is the one people get wrong. Running IP over a reliable ARQ link gives you two retransmit timers fighting each other, and AX.25's variable multi-second RTT wrecks TCP's RTO estimator, producing spurious retransmits that make congestion worse. Send IP in UI frames and let TCP own reliability, which is what it is for.
+But refusing to speak ARP at all (PID 0xCD) is not a simplification, it is an interop failure: a station with only a static map cannot be *discovered* by anyone who does not already know it, and peers do issue ARP requests. Answering ARP for our own address while resolving outbound from the map keeps the determinism and costs almost nothing.
+
+**Send datagram, accept both.** Running IP over a reliable ARQ link gives you two retransmit timers fighting each other, and AX.25's variable multi-second RTT wrecks TCP's RTO estimator, producing spurious retransmits that make congestion worse. So transmit IP in UI frames and let TCP own reliability, which is what it is for.
+
+Receiving is a different question, and answering it the same way would be a bug. Both encapsulations are in use, and the kernel accepted either regardless of what a route was configured to send, per `ax25rtd.conf(5)`:
+
+> the kernel AX.25 sends a received IP frame to the IP layer regardless if it was sent in UI frame encapsulation "mode datagram (dg)" or in I frame encaps, hence in an AX.25 connection, "mode virtual connect (vc)"
+
+A peer configured for virtual circuit will open a session and send I-frames with PID 0xCC expecting them to work. Accept them.
 
 **Set the MTU honestly.** 256 paclen minus overhead is about 236. Path MTU discovery will not save you; set it and move on.
 
 **Be honest about bitrate.** A full packet at 1200 baud is about 1.7 seconds on air. This is a curiosity below 9600 and only becomes a tool at qpsk3600 and above.
 
 **Use 44net.** AMPRNet is a live ecosystem with real allocations and real routing. A TUN device that puts a 44.x address on a radio link joins something that exists. One that invents a private range is a demo.
+
+**Digipeat UI frames.** We closed axcall's digipeater support as not planned (#35), on the grounds that layer-2 digipeating has no place in a modern connected-mode network. That reasoning does not carry over here. Digipeating a UI frame is addressing, not the session-path problem #35 was about, and without it nothing behind a digi is reachable, which rules out a lot of real AMPRNet paths. The two decisions are allowed to differ and should.
+
+### Interoperability is a goal, not a property
+
+The encoding is the easy part and it interoperates: IP in AX.25 with PID 0xCC is universal, and `Ax25Pid.Ip` already names it. Everything that makes this actually talk to the installed base is behaviour, and has to be chosen deliberately:
+
+| | Needed for | Without it |
+|---|---|---|
+| Accept VC as well as datagram | kernel routes set to `mode vc`, JNOS, BPQ | a VC-configured peer simply cannot reach us |
+| Answer ARP (PID 0xCD) | any peer without us in its static map | we are unreachable until someone hand-configures us |
+| Digipeated UI | anything behind a digi | large parts of AMPRNet are unreachable |
+| Van Jacobson header compression (PID 0x06) | JNOS and NOS-derived stacks | a compressed peer is unintelligible, and we waste the channel |
+
+The last one deserves more than a table row. `Ax25Pid` already names `CompressedTcpIp = 0x06` and `UncompressedTcpIp = 0x07`. VJ takes about 40 bytes of TCP/IP header down to about 5. Against a 236-byte MTU that is not a micro-optimisation, it is a meaningful fraction of every packet on a channel where a full frame already takes over a second. Any implementation that skips it is both slower and deaf to peers that use it.
+
+None of this should be settled by reading man pages, which is all the above is. LinBPQ has an IP stack and is already running in this repo's Testcontainers harness for the connected-mode integration tests, so an IP-over-AX.25 interop test can be built against a real implementation. That is the first thing to do if Path B is ever picked up, before writing the TUN plumbing: prove the encapsulation against something real, then build out from there.
 
 ### What Path B costs
 
@@ -163,6 +188,7 @@ It is also a genuinely bigger build: a TUN device, an IP-to-callsign layer, a br
 | Usable at 1200 baud | yes | not really |
 | Risk of unintended transmission | none | high, needs egress filtering |
 | Prior art | ax25d, AGW | kernel ax25_ip, AMPRNet |
+| Interop burden | none, it is a socket | four separate behaviours, see above |
 
 ## What I would do
 
@@ -171,3 +197,5 @@ Path A, in the order A.2 then A.3, and treat Path B as a separate project judged
 The reason is that Path A converts work already done into reach. The byte-transparency fix means the hard part is proven; `axsocks` is mostly plumbing, and `axinetd` turns "write a packet service" into "write a program that reads stdin", which is the lowest barrier we can offer anyone.
 
 Path B is the more interesting engineering and the smaller audience. It is worth doing if the goal is to administer remote sites over radio, or to connect to AMPRNet. It is not the answer to "how do I write something for the packet network", and it would be a mistake to build it in the belief that it is.
+
+It is also more work than the first draft of this document implied. That draft treated interoperability as something the design would get for free from using the right PID, which is wrong: VC receive, ARP, digipeated UI and VJ compression are each a deliberate piece of work, and a Path B without them talks only to itself.
