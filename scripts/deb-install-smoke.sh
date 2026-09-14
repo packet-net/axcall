@@ -31,6 +31,18 @@ if [ $# -ge 1 ]; then IMAGES="$*"; else IMAGES="debian:stable-slim ubuntu:24.04"
 DEB_DIR=$(dirname "$DEB_PATH")
 DEB_BASE=$(basename "$DEB_PATH")
 
+# Pin the container platform to this machine's. Without it, a base image left
+# in the local cache for another architecture is used silently, and the run
+# fails with "exec /bin/sh: exec format error", which says nothing about why.
+# That is easy to do by accident: one `docker run --platform linux/arm64
+# debian:stable-slim` replaces the tag for everything afterwards.
+case "$(uname -m)" in
+  x86_64)  PLATFORM=linux/amd64 ;;
+  aarch64) PLATFORM=linux/arm64 ;;
+  armv7l)  PLATFORM=linux/arm/v7 ;;
+  *) echo "unknown host architecture: $(uname -m)" >&2; exit 2 ;;
+esac
+
 # The assertions, run inside the container. Fully single-quoted: every $VAR here
 # is expanded by the container's /bin/sh, not the host. The .deb basename
 # arrives via -e env so this stays interpolation-free.
@@ -99,7 +111,7 @@ for image in $IMAGES; do
   echo "================================================================"
   echo "== smoke: $image"
   echo "================================================================"
-  if docker run --rm -v "$DEB_DIR":/work:ro -e DEB_BASE="$DEB_BASE" \
+  if docker run --rm --platform "$PLATFORM" -v "$DEB_DIR":/work:ro -e DEB_BASE="$DEB_BASE" \
        "$image" /bin/sh -c "$INNER"; then
     echo "== $image: OK"
   else
