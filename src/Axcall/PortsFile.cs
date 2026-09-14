@@ -12,12 +12,18 @@ namespace Axcall;
 /// <param name="Transport">The serial device or TCP endpoint to open.</param>
 /// <param name="Paclen">N1 default for this port, null when unset.</param>
 /// <param name="Window">k default for this port, null when unset.</param>
+/// <param name="Channel">
+/// KISS channel-access settings for this TNC, from any key=value columns.
+/// This is where they belong: "this radio needs 300 ms of TX delay" is a fact
+/// about the port, not about a call made over it.
+/// </param>
 internal sealed record PortEntry(
     string Name,
     Callsign? Callsign,
     TransportSpec Transport,
     int? Paclen,
-    int? Window);
+    int? Window,
+    ChannelParams Channel);
 
 /// <summary>
 /// The ports file: whitespace-separated columns binding a short name to a
@@ -40,6 +46,18 @@ internal sealed record PortEntry(
 /// radio    M0LTE-7    /dev/ttyUSB0:57600   256     4       144.800 MHz
 /// node     M0LTE-7    10.45.0.66:8001      -       -       LinBPQ
 /// </code>
+/// <para>
+/// After the window column, any number of key=value settings may appear before
+/// the description. The recognised keys are txdelay, persist, slottime and
+/// txtail, the KISS channel-access parameters that kissparms(8) used to set:
+/// </para>
+/// <code>
+/// radio    M0LTE-7    /dev/ttyUSB0:57600   256     4   txdelay=300 persist=63   144.800 MHz
+/// </code>
+/// <para>
+/// A token is only read as a setting if its key is one we know, so a
+/// description is free to contain an equals sign.
+/// </para>
 /// <para>
 /// The system file is read first and the user file second, so a user entry
 /// replaces a system entry of the same name. A malformed line fails the whole
@@ -203,10 +221,55 @@ internal static class PortsFile
         if (!TryOptionalCount(fields, 4, "window", out var window, out error))
             return false;
 
-        // Anything past the window column is a free-text description, kept in
-        // the file for the reader's benefit and ignored here.
-        entry = new PortEntry(name, callsign, transport!, paclen, window);
+        // key=value settings, then free text. The first token that is not a
+        // recognised setting ends the settings and begins the description,
+        // which is kept in the file for the reader and ignored here.
+        byte? txDelay = null, persist = null, slotTime = null, txTail = null;
+        for (int i = 5; i < fields.Length; i++)
+        {
+            var eq = fields[i].IndexOf('=', StringComparison.Ordinal);
+            if (eq <= 0) break;
+
+            var key = fields[i][..eq];
+            var value = fields[i][(eq + 1)..];
+            byte parsed;
+
+            switch (key)
+            {
+                case "txdelay":
+                    if (!ChannelParams.TryParseTimerMs(value, out parsed, out error)) return Fail($"txdelay: {error}", out error);
+                    txDelay = parsed;
+                    break;
+                case "persist":
+                    if (!ChannelParams.TryParsePersist(value, out parsed, out error)) return Fail($"persist: {error}", out error);
+                    persist = parsed;
+                    break;
+                case "slottime":
+                    if (!ChannelParams.TryParseTimerMs(value, out parsed, out error)) return Fail($"slottime: {error}", out error);
+                    slotTime = parsed;
+                    break;
+                case "txtail":
+                    if (!ChannelParams.TryParseTimerMs(value, out parsed, out error)) return Fail($"txtail: {error}", out error);
+                    txTail = parsed;
+                    break;
+                default:
+                    // Not a setting we know, so this is where the description
+                    // starts. A description containing '=' is therefore safe.
+                    i = fields.Length;
+                    break;
+            }
+        }
+
+        entry = new PortEntry(name, callsign, transport!, paclen, window,
+            new ChannelParams(txDelay, persist, slotTime, txTail));
         return true;
+    }
+
+    // Carry a message out of the switch above without repeating the shape.
+    private static bool Fail(string message, out string? error)
+    {
+        error = message;
+        return false;
     }
 
     // An optional numeric column: absent, "-", or a positive whole number. The
