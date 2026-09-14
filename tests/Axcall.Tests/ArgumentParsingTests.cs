@@ -250,6 +250,7 @@ public sealed class ArgumentParsingTests
     [InlineData("--serial")]
     [InlineData("--tcp")]
     [InlineData("--baud")]
+    [InlineData("--idle-timeout")]
     public async Task Missing_Value_Returns_Exit_Code_2(string flag)
     {
         var code = await Program.Main([.. Line(), flag]);
@@ -277,17 +278,105 @@ public sealed class ArgumentParsingTests
         Program.ParseArgs(Line(flag)).Should().NotBeNull();
     }
 
+    [Fact]
+    public async Task Ibm850_Is_Refused_With_Its_Own_Reason()
+    {
+        // The one classic flag we cannot honour. Ignoring it would produce
+        // mojibake rather than nothing, so it fails rather than being accepted.
+        var code = await Program.Main(Line("-i"));
+        code.Should().Be(2);
+    }
+
+    // The terminal behaviours: -T, -W, -S and -d.
+
     [Theory]
-    // Each of these has its own reason, and a bare "unknown option" would hide
-    // it. -i cannot be honoured at all; the rest are tracked as issues.
-    [InlineData("-i")]
-    [InlineData("-T")]
+    [InlineData("-T", "60", 60)]
+    [InlineData("--idle-timeout", "0.5", 0.5)]
+    // The kernel version's floor, one millisecond.
+    [InlineData("-T", "0.001", 0.001)]
+    public void Idle_Timeout_Is_Parsed(string flag, string value, double expectedSeconds)
+    {
+        Program.ParseArgs(Line(flag, value))!.IdleTimeout.Should().Be(TimeSpan.FromSeconds(expectedSeconds));
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("0.0009")]
+    [InlineData("-1")]
+    [InlineData("notanumber")]
+    [InlineData("NaN")]
+    // One past the timer ceiling, same as --keepalive's.
+    [InlineData("4294968")]
+    public async Task Invalid_Idle_Timeout_Returns_Exit_Code_2(string value)
+    {
+        var code = await Program.Main(Line("-T", value));
+        code.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Missing_Idle_Timeout_Value_Returns_Exit_Code_2()
+    {
+        var code = await Program.Main(Line("-T"));
+        code.Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData("-W")]
+    [InlineData("--wait")]
+    public void Wait_Is_Parsed(string flag)
+    {
+        Program.ParseArgs(Line(flag))!.Wait.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("-S")]
+    [InlineData("--silent")]
+    public void Silent_Is_Parsed(string flag)
+    {
+        Program.ParseArgs(Line(flag))!.Silent.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("-d")]
+    [InlineData("--debug")]
+    public void Debug_Is_Parsed(string flag)
+    {
+        Program.ParseArgs(Line(flag))!.TraceFrames.Should().BeTrue();
+    }
+
+    [Fact]
+    public void The_Behaviour_Flags_Default_Off()
+    {
+        var parsed = Program.ParseArgs(Line());
+        parsed.Should().NotBeNull();
+        parsed!.IdleTimeout.Should().BeNull();
+        parsed.Wait.Should().BeFalse();
+        parsed.Silent.Should().BeFalse();
+        parsed.TraceFrames.Should().BeFalse();
+    }
+
+    [Fact]
+    public void The_Behaviour_Flags_Combine()
+    {
+        // -W with -T is the pairing worth having: -W alone against a peer that
+        // never hangs up waits for ever.
+        var parsed = Program.ParseArgs(Line("-W", "-T", "30", "-S", "-d"));
+        parsed.Should().NotBeNull();
+        parsed!.Wait.Should().BeTrue();
+        parsed.IdleTimeout.Should().Be(TimeSpan.FromSeconds(30));
+        parsed.Silent.Should().BeTrue();
+        parsed.TraceFrames.Should().BeTrue();
+    }
+
+    [Theory]
     [InlineData("-W")]
     [InlineData("-S")]
     [InlineData("-d")]
-    public async Task Unimplemented_Classic_Flags_Return_Exit_Code_2(string flag)
+    public async Task The_Boolean_Behaviour_Flags_Take_No_Value(string flag)
     {
-        var code = await Program.Main(Line(flag));
+        // The token after the flag is the destination, so a second one is a
+        // second positional and therefore unexpected.
+        var code = await Program.Main([flag, "G7RUX", "EXTRA", "-s", "M0LTE", "--tcp", "localhost:8001"]);
         code.Should().Be(2);
     }
 

@@ -40,18 +40,20 @@ A leading `/`, `./` or `../` makes it a device; a colon anywhere else makes it a
 | `-i` | IBM850 | refused: ignoring it would produce mojibake, not nothing |
 | `-v` | version | same (`-V` and `--version` also work) |
 | `-h` | slave mode | **means `--help`**, see below |
-| `-d` | `SO_DEBUG` | not implemented, #34 |
-| `-T timeout` | idle timeout | not implemented, #31 |
-| `-W` | wait for remote disconnect | not implemented, #32 |
-| `-S` | be silent | not implemented, #33 |
+| `-d` | `SO_DEBUG` | one line per frame, both directions |
+| `-T timeout` | idle timeout | same, and hangs up properly rather than dropping the socket |
+| `-W` | wait for remote disconnect | same |
+| `-S` | be silent | same |
 | `port callsign` | port name then destination | same |
-| `[via] digi...` | digipeater path | not implemented, #35 |
+| `[via] digi...` | digipeater path | **refused**, see below |
 
 The four flags that ignore their argument still validate it, so `-b 9600` fails rather than passing quietly. That letter meant a baud rate in axcall 0.2.x, and this is the one place an old invocation of *this* program could otherwise have been misread.
 
 Long options, all of them additions with no classic counterpart: `--serial`, `--tcp`, `--baud`, `--listen` (`-l`), `--mod128`, `--keepalive`, `--retries`, `--frack`, `--ack-delay`, `--no-xid`, `--paclen`, `--window`, `--mycall`, `--help`, `--version`.
 
-Note that `--keepalive` is T3, the poll that *keeps an idle link up*, and is not classic's `-T`, which tears one down. The two are easy to confuse and the help text says so.
+Note that `--keepalive` is T3, the poll that *keeps an idle link up*, and is not classic's `-T`, which tears one down. The two are easy to confuse and both the help text and the man page say so.
+
+`-T`, `-W`, `-S` and `-d` also have the long spellings `--idle-timeout`, `--wait`, `--silent` and `--debug`.
 
 ## The ports file
 
@@ -90,7 +92,9 @@ $ echo $?
 
 That case is much more likely to be a ported script asking for slave mode, and printing help and exiting 0 would look to the script like a successful call. Every other difference between the two programs fails loudly; this one had to be made to.
 
-**Exit codes are useful.** Classic's are not: `main` runs `while (cmd_call(...))`, `cmd_call` returns FALSE when `connect_to` fails, so **a failed connect exits 0**, and only a usage error exits non-zero. Here: 0 success, 1 fatal, 2 usage, 3 could not open the modem, 4 connect refused or timed out. Nothing regresses, because a script that tested `$?` against classic never saw a failure anyway, but a script that silently tolerated a dead link will now start reporting one.
+**Exit codes are useful.** Classic's are not: `main` runs `while (cmd_call(...))`, `cmd_call` returns FALSE when `connect_to` fails, so **a failed connect exits 0**, and only a usage error exits non-zero. Here: 0 success, 1 fatal, 2 usage, 3 could not open the modem, 4 connect refused or timed out, 5 the `-T` idle timeout fired. Nothing regresses, because a script that tested `$?` against classic never saw a failure anyway, but a script that silently tolerated a dead link will now start reporting one.
+
+**No digipeater paths.** Classic takes up to eight after the destination, with or without the literal `via`. axcall dials direct only and refuses a path rather than ignoring it, because silently dialling direct when you asked to go via a digipeater is worse than failing. Layer-2 digipeating has no place in a modern connected-mode network: it multiplies channel occupancy on a shared half-duplex medium, gives the data link no way to tell a lost hop from a lost frame, and the routing job it was doing is better done at layer 3 or 4 by a node.
 
 **No NET/ROM or Rose.** Classic picks the address family by trying the port name against `axports`, then `nrports`, then `rsports`, and the same binary is installed as `netromcall` and `rosecall`. We are AX.25 only.
 

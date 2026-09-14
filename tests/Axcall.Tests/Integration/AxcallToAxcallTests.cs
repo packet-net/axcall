@@ -118,35 +118,4 @@ public sealed class AxcallToAxcallTests
     {
         try { await t; } catch { /* shutdown races are expected on cancel */ }
     }
-
-    /// <summary>Thread-safe sink: the relay writes on its pump thread, the test reads on its own.</summary>
-    private sealed class CapturingWriter : TextWriter
-    {
-        private readonly StringBuilder sb = new();
-        private readonly Lock gate = new();
-
-        public override Encoding Encoding => Encoding.UTF8;
-
-        public override void Write(char value) { lock (gate) sb.Append(value); }
-        public override void Write(string? value) { if (value is not null) lock (gate) sb.Append(value); }
-        public override void Write(char[] buffer, int index, int count) { lock (gate) sb.Append(buffer, index, count); }
-
-        public string Snapshot() { lock (gate) return sb.ToString(); }
-    }
-
-    /// <summary>Yields the scripted lines once, then blocks until cancelled (returning EOF).</summary>
-    private sealed class ScriptedReader(IReadOnlyList<string> lines) : TextReader
-    {
-        private int index;
-
-        public override async ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken)
-        {
-            if (index < lines.Count) return lines[index++];
-            try { await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false); }
-            catch (OperationCanceledException) { }
-            return null;
-        }
-
-        public override string? ReadLine() => index < lines.Count ? lines[index++] : null;
-    }
 }
