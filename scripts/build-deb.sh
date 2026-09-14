@@ -27,6 +27,11 @@ esac
 # dpkg sorts `~` before everything including the empty string, so the rc
 # correctly precedes 0.3.0. Left as a hyphen it would be read as Debian
 # revision `rc1` of upstream 0.3.0, and would sort AFTER the real release.
+#
+# Note that GitHub rewrites `~` to `.` in RELEASE ASSET names on upload, so a
+# prerelease downloads as axcall_0.3.0.rc1_amd64.deb. That is cosmetic: dpkg
+# reads the version out of the control file, not the filename, and the control
+# file still says 0.3.0~rc1. Verified on v0.3.0-rc1.
 deb_version="${version/-/\~}"
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
