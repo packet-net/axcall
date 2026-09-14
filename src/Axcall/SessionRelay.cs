@@ -112,6 +112,20 @@ public sealed record SessionRelayOptions
     /// intent served by <see cref="Ax25Listener.FrameTraced"/>.
     /// </summary>
     public bool TraceFrames { get; init; }
+
+    /// <summary>
+    /// -r. Byte transparency: stdin goes to the link exactly as it arrives, and
+    /// the link goes to stdout exactly as it arrives. No line framing, no CR
+    /// appended on send, no CR-to-LF translation on receive.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, which is -t, line mode, and right for a terminal. On, it
+    /// is what the kernel version's -r meant, and what its man page promised
+    /// with "-r together with -S in order to be really transparent": stdout
+    /// carries the peer's bytes and nothing else, so axcall can sit in a
+    /// pipeline or under an ssh ProxyCommand.
+    /// </remarks>
+    public bool Binary { get; init; }
 }
 
 public sealed class SessionRelay : IAsyncDisposable
@@ -128,6 +142,8 @@ public sealed class SessionRelay : IAsyncDisposable
     private readonly Ax25Listener listener;
     private readonly TextReader? input;
     private readonly TextWriter? output;
+    private readonly Stream? binaryInput;
+    private readonly Stream? binaryOutput;
     private readonly TextWriter? status;
     private readonly SessionRelayOptions options;
     private readonly TaskCompletionSource<Ax25Session> inboundSessionTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -143,16 +159,23 @@ public sealed class SessionRelay : IAsyncDisposable
     // input/output/status default to the process console; tests inject their own
     // so multiple relays can run in one process without fighting over Console.
     // options defaults to a modulo-8 dial with the default keepalive.
+    // In binary mode (-r) the text reader and writer are unused: bytes cannot
+    // survive a TextWriter's encoding, so that path runs on streams instead.
+    // Tests inject their own; everything else falls back to the console's.
     public SessionRelay(
         IAx25Transport modem,
         Callsign myCall,
         TextReader? input = null,
         TextWriter? output = null,
         SessionRelayOptions? options = null,
-        TextWriter? status = null)
+        TextWriter? status = null,
+        Stream? binaryInput = null,
+        Stream? binaryOutput = null)
     {
         this.input = input;
         this.output = output;
+        this.binaryInput = binaryInput;
+        this.binaryOutput = binaryOutput;
         this.status = status;
         this.options = options ??= new SessionRelayOptions();
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(options.Keepalive, TimeSpan.Zero);
@@ -248,8 +271,11 @@ public sealed class SessionRelay : IAsyncDisposable
         /// <summary>The peer dropped the link; nothing left to do.</summary>
         RemoteDisconnected,
 
-        /// <summary>End of input (or Ctrl-C): we hang up.</summary>
+        /// <summary>End of input: we flush what is queued, then hang up.</summary>
         InputEnded,
+
+        /// <summary>Ctrl-C: we hang up at once, without waiting to flush.</summary>
+        Cancelled,
 
         /// <summary>-T elapsed with no data either way: we hang up, and exit 5.</summary>
         IdleTimeout,
@@ -274,7 +300,11 @@ public sealed class SessionRelay : IAsyncDisposable
             using var idleCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
             MarkActivity();
-            var stdinTask = Task.Run(() => ReadStdinAsync(session, stdinCts.Token), CancellationToken.None);
+            var stdinTask = Task.Run(
+                () => options.Binary
+                    ? PumpBinaryInputAsync(session, stdinCts.Token)
+                    : ReadStdinAsync(session, stdinCts.Token),
+                CancellationToken.None);
             var idleTask = options.IdleTimeout is { } idle
                 ? WatchIdleAsync(idle, idleCts.Token)
                 : NeverIdle;
@@ -290,11 +320,20 @@ public sealed class SessionRelay : IAsyncDisposable
             await stdinCts.CancelAsync().ConfigureAwait(false);
             await idleCts.CancelAsync().ConfigureAwait(false);
 
-            if (reason is StopReason.InputEnded or StopReason.IdleTimeout)
+            if (reason is StopReason.InputEnded or StopReason.IdleTimeout or StopReason.Cancelled)
             {
                 if (reason is StopReason.IdleTimeout)
                 {
                     WriteStatus($"idle for {FormatSeconds(options.IdleTimeout!.Value)}, closing the link");
+                }
+
+                // End of input means "I have said everything", not "drop it
+                // now": anything still queued or unacknowledged has to go out
+                // first, or piping a file through axcall would truncate it at
+                // one window. Ctrl-C is the opposite and hangs up at once.
+                if (reason is StopReason.InputEnded)
+                {
+                    await DrainAsync(session, disconnectTcs.Task, cancelTcs.Task).ConfigureAwait(false);
                 }
 
                 // Hang up properly and wait for the handshake, rather than
@@ -332,7 +371,7 @@ public sealed class SessionRelay : IAsyncDisposable
 
         if (first == disconnectTask) return StopReason.RemoteDisconnected;
         if (first == idleTask) return StopReason.IdleTimeout;
-        if (first == cancelTask) return StopReason.InputEnded;
+        if (first == cancelTask) return StopReason.Cancelled;
 
         if (!options.WaitForRemoteDisconnect) return StopReason.InputEnded;
 
@@ -341,7 +380,44 @@ public sealed class SessionRelay : IAsyncDisposable
         if (second == idleTask) return StopReason.IdleTimeout;
         // Cancelled, or the peer hung up: either way we are finished, and a
         // cancelled relay still hangs up rather than dropping the link.
-        return second == cancelTask ? StopReason.InputEnded : StopReason.RemoteDisconnected;
+        return second == cancelTask ? StopReason.Cancelled : StopReason.RemoteDisconnected;
+    }
+
+    /// <summary>
+    /// Wait until everything we have been given has actually been sent and
+    /// acknowledged: nothing queued, and every I-frame sent is acked (V(A) has
+    /// caught up with V(S)).
+    /// </summary>
+    /// <remarks>
+    /// No timer bounds this, deliberately. A slow link is slow, and 4 kB at
+    /// 1200 baud is a legitimate half-minute; any fixed deadline would be wrong
+    /// for some real link. What bounds it instead is the link itself: if the
+    /// peer stops acknowledging, the session exhausts its N2 retry budget and
+    /// reports a disconnect, which is one of the things this waits on.
+    /// </remarks>
+    private static async Task DrainAsync(Ax25Session session, Task disconnectTask, Task cancelTask)
+    {
+        while (true)
+        {
+            bool queued;
+            bool unacknowledged;
+            lock (session.Context.IFrameQueue)
+            {
+                queued = session.Context.IFrameQueue.Count > 0;
+                unacknowledged = session.Context.VA != session.Context.VS;
+            }
+
+            if (!queued && !unacknowledged)
+                return;
+
+            if (disconnectTask.IsCompleted || cancelTask.IsCompleted)
+                return;
+
+            await Task.WhenAny(
+                Task.Delay(TimeSpan.FromMilliseconds(50)),
+                disconnectTask,
+                cancelTask).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -394,14 +470,60 @@ public sealed class SessionRelay : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// -r. Stdin to the link verbatim: no lines, no appended CR, nothing
+    /// interpreted. Read in frame-sized bites so a bulk transfer does not sit
+    /// in a buffer waiting to be filled, and so each read maps to one I-frame.
+    /// </summary>
+    private async Task PumpBinaryInputAsync(Ax25Session session, CancellationToken ct)
+    {
+        var stream = binaryInput ?? Console.OpenStandardInput();
+        var buffer = new byte[Math.Max(1, session.Context.N1)];
+
+        while (!ct.IsCancellationRequested)
+        {
+            int read;
+            try
+            {
+                read = await stream.ReadAsync(buffer, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            // Zero is end of input, the same signal a null line gives in line mode.
+            if (read == 0)
+                return;
+
+            // Copied deliberately: the request holds the memory until the
+            // session has framed it, and this buffer is overwritten by the
+            // next read.
+            session.PostEvent(new DlDataRequest(buffer.AsSpan(0, read).ToArray()));
+            MarkActivity();
+        }
+    }
+
     private void OnSignal(object? sender, DataLinkSignal sig)
     {
         if (sig is DataLinkDataIndication di)
         {
             MarkActivity();
-            var writer = output ?? Console.Out;
-            writer.Write(RenderReceivedText(di.Info.Span));
-            writer.Flush();
+            if (options.Binary)
+            {
+                // Verbatim, and through a stream rather than a TextWriter: a
+                // writer would re-encode, which is the whole thing -r exists to
+                // stop.
+                var stream = binaryOutput ?? Console.OpenStandardOutput();
+                stream.Write(di.Info.Span);
+                stream.Flush();
+            }
+            else
+            {
+                var writer = output ?? Console.Out;
+                writer.Write(RenderReceivedText(di.Info.Span));
+                writer.Flush();
+            }
         }
     }
 
