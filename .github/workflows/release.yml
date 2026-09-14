@@ -1,17 +1,29 @@
 name: release
 
-# Tag-triggered release. Push a tag like `v0.2.0` to build self-contained
-# single-file binaries for every supported platform and publish them as a
-# GitHub Release. The version stamped into the build is the tag minus its
-# leading `v`.
+# Tag-triggered release. Push a tag like `v0.5.0` to build every supported
+# platform and publish them as a GitHub Release. The version stamped into the
+# build is the tag minus its leading `v`.
+#
+# Each artifact is built on a runner of its own platform, so NativeAOT can be
+# used without cross-linking anything: that is what takes the binaries from
+# ~74 MB to ~4 MB and the .debs to ~1.5 MB. The one exception is linux-arm
+# (armhf), which has no runner to build on and so is cross-published from x64
+# with trimming and ReadyToRun instead.
+#
+# Use workflow_dispatch with dry_run to exercise the whole matrix without
+# publishing anything.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build & release (e.g. v0.2.0)'
+        description: 'Tag to build (e.g. v0.5.0)'
         required: true
+      dry_run:
+        description: 'Build and check everything, but publish no release'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -20,75 +32,142 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  release:
-    name: build + release
-    runs-on: [self-hosted, Linux, X64]
+  build:
+    name: ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not hide the state of the others.
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            os: ubuntu-24.04
+            deb: amd64
+            smoke: true
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+            deb: arm64
+            smoke: true
+          # No armhf runner exists, so this one is cross-published. It is also
+          # the only target that is not NativeAOT, for the same reason.
+          - rid: linux-arm
+            os: ubuntu-24.04
+            deb: armhf
+            smoke: false
+          # Both macOS slices build on Apple Silicon: Xcode carries the
+          # x86_64 SDK, so clang cross-targets it natively. The Intel macos-13
+          # image is being retired and queues for 15 minutes or more, which is
+          # a poor thing to have a release depend on.
+          - rid: osx-x64
+            os: macos-14
+          - rid: osx-arm64
+            os: macos-14
+          - rid: win-x64
+            os: windows-latest
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
       - name: Resolve tag
         id: tag
+        shell: bash
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build single-file binaries
+      - name: Publish
+        shell: bash
         run: |
           set -euo pipefail
+          # How to publish is the csproj's business: NativeAOT everywhere with a
+          # native runner, trimmed single-file plus R2R for armhf.
+          dotnet publish src/Axcall/Axcall.csproj -c Release -r "${{ matrix.rid }}" --self-contained \
+            -p:DebugType=none -p:DebugSymbols=false \
+            -p:Version="${{ steps.tag.outputs.version }}" \
+            -p:InformationalVersion="${{ steps.tag.outputs.version }}" \
+            -o "publish/${{ matrix.rid }}"
+
+      - name: Stage the loose binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
           TAG="${{ steps.tag.outputs.tag }}"
-          VERSION="${{ steps.tag.outputs.version }}"
-          rm -rf dist && mkdir -p dist
-          for rid in linux-x64 linux-arm linux-arm64 osx-x64 osx-arm64 win-x64; do
-            echo "::group::publish $rid"
-            dotnet publish src/Axcall/Axcall.csproj -c Release -r "$rid" --self-contained \
-              -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-              -p:DebugType=none -p:DebugSymbols=false \
-              -p:Version="$VERSION" -p:InformationalVersion="$VERSION" \
-              -o "publish/$rid"
-            if [ "$rid" = "win-x64" ]; then
-              mv "publish/$rid/axcall.exe" "dist/axcall-$TAG-$rid.exe"
-            else
-              mv "publish/$rid/axcall" "dist/axcall-$TAG-$rid"
-            fi
-            echo "::endgroup::"
-          done
-          ls -la dist
+          if [ "${{ matrix.rid }}" = "win-x64" ]; then
+            cp "publish/${{ matrix.rid }}/axcall.exe" "dist/axcall-$TAG-${{ matrix.rid }}.exe"
+          else
+            cp "publish/${{ matrix.rid }}/axcall" "dist/axcall-$TAG-${{ matrix.rid }}"
+          fi
+          ls -l dist
 
-      # The .deb carries the same self-contained single-file binary as the loose
-      # download above, so the two are not different programs. amd64, arm64 and
-      # armhf all cross-publish from this x64 runner.
-      - name: Build .deb packages
+      - name: Build the .deb
+        if: matrix.deb != ''
+        run: scripts/build-deb.sh "${{ matrix.rid }}" "${{ steps.tag.outputs.version }}"
+
+      # Proves the package installs, runs and purges on a pristine Debian and
+      # Ubuntu. Only where the runner can execute the binary: armhf has no
+      # runner of its own, so its package ships unexercised.
+      - name: Smoke-test the .deb
+        if: matrix.smoke
+        run: scripts/deb-install-smoke.sh artifacts/axcall_*_${{ matrix.deb }}.deb
+
+      - name: Collect the .deb
+        if: matrix.deb != ''
+        shell: bash
+        run: cp artifacts/*.deb dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: axcall-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: publish
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: staged
+
+      - name: Gather
         run: |
           set -euo pipefail
-          VERSION="${{ steps.tag.outputs.version }}"
-          # The runner is self-hosted and not ephemeral, so a stale artifacts/
-          # from a previous tag would otherwise be copied into this release.
-          rm -rf artifacts
-          for rid in linux-x64 linux-arm64 linux-arm; do
-            echo "::group::deb $rid"
-            scripts/build-deb.sh "$rid" "$VERSION"
-            echo "::endgroup::"
-          done
-          cp artifacts/*.deb dist/
-          ls -la dist
-
-      # Proves the .deb installs, runs and purges on a pristine Debian and
-      # Ubuntu, which is where a self-contained publish missing a native
-      # dependency would otherwise only show up on a user's machine. amd64
-      # only: the runner cannot exec the arm binaries.
-      - name: Smoke-test the amd64 .deb
-        # Globbed, not named: a prerelease tag becomes a ~ version in the
-        # filename. artifacts/ was cleaned above, so exactly one file matches.
-        run: scripts/deb-install-smoke.sh artifacts/axcall_*_amd64.deb
+          mkdir -p dist
+          find staged -type f -exec cp {} dist/ \;
+          ls -l dist
+          # Six loose binaries plus three .debs. Fail loudly rather than
+          # publishing a release that is quietly missing a platform.
+          count=$(find dist -type f | wc -l)
+          [ "$count" -eq 9 ] || { echo "expected 9 artifacts, got $count"; exit 1; }
 
       - name: Create release
+        if: github.event.inputs.dry_run != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: axcall ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
-          # Tags with a prerelease label (e.g. v0.2.2-rc1) are marked
+          # Tags with a prerelease label (e.g. v0.5.0-rc1) are marked
           # pre-release so they don't show as the latest stable build.
           prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
           files: dist/*
+
+      - name: Dry run summary
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          echo "### Dry run: nothing published" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          ls -l dist >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

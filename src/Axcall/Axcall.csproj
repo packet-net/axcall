@@ -15,6 +15,44 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
+  <!-- Publish strategy. Measured at 0.4.0 on linux-x64:
+
+         plain                74.4 MB   23 ms to start
+         trimmed              15.7 MB   52 ms
+         trimmed + R2R        21.5 MB   21 ms
+         NativeAOT             3.9 MB    4 ms
+
+       Trimming alone starts more than twice as slowly, because the runtime pack
+       ships its framework assemblies ReadyToRun-compiled and trimming rewrites
+       them, discarding that native code. NativeAOT wins on both counts, so it
+       is used everywhere it can be built, which means everywhere the release
+       has a native runner: Linux x64 and arm64, macOS, Windows.
+
+       linux-arm (armhf) is the exception and keeps trimming plus ReadyToRun.
+       NativeAOT has no armhf runner to build on and cannot be cross-linked to
+       armhf from x86_64, and armhf is the one target where that is an
+       acceptable answer. It is still 71% smaller than an untrimmed publish,
+       with no startup cost.
+
+       TrimmerSingleWarn=false lists every trim and AOT warning rather than one
+       summary. With TreatWarningsAsErrors from Directory.Build.props that turns
+       any future reflection the compiler cannot follow into a build failure,
+       which is what keeps both strategies safe. There are none today. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' and '$(RuntimeIdentifier)' != 'linux-arm'">
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' and '$(PublishAot)' != 'true'">
+    <PublishTrimmed>true</PublishTrimmed>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Packet.Core" />
     <PackageReference Include="Packet.Ax25" />

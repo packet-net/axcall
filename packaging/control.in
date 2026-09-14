@@ -3,7 +3,7 @@ Version: @VERSION@
 Architecture: @ARCH@
 Maintainer: Tom Fanning <tom@m0lte.uk>
 Installed-Size: @INSTALLED_SIZE@
-Depends: libc6, libgcc-s1, libstdc++6, zlib1g
+Depends: @DEPENDS@
 Conflicts: ax25-apps
 Replaces: ax25-apps
 Section: hamradio
