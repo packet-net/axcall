@@ -30,7 +30,8 @@ internal sealed record ParsedArgs(
     TimeSpan? IdleTimeout,
     bool Wait,
     bool Silent,
-    bool TraceFrames);
+    bool TraceFrames,
+    bool Binary);
 
 public static class Program
 {
@@ -140,6 +141,7 @@ public static class Program
                 WaitForRemoteDisconnect = parsed.Wait,
                 Silent = parsed.Silent,
                 TraceFrames = parsed.TraceFrames,
+                Binary = parsed.Binary,
             };
             await using var relay = new SessionRelay(modem, parsed.MyCall, options: relayOptions);
 
@@ -196,6 +198,9 @@ public static class Program
         bool wait = false;
         bool silent = false;
         bool traceFrames = false;
+        // -r and -t select the same thing from opposite ends, so the last one
+        // on the line wins, as it does in the kernel version.
+        bool binary = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -235,8 +240,15 @@ public static class Program
                     if (args[i].ToLowerInvariant() is not ("l" or "e"))
                         return Fail($"invalid value for -b: {args[i]} (expected l for linear, e for exponential)");
                     break;
-                case "-r":      // raw mode: axcall is always raw
-                case "-t":      // talk mode: axcall has no screen modes
+                case "-r" or "--raw":
+                    // Byte transparency, as the kernel version's raw mode was.
+                    binary = true;
+                    break;
+                case "-t" or "--talk":
+                    // Line mode, the default. The kernel version's talk mode
+                    // was a curses screen; what carries over is the framing.
+                    binary = false;
+                    break;
                 case "-R":      // no remote commands: axcall has none to disable
                 case "-8":      // UTF-8: axcall is always UTF-8
                     break;
@@ -461,7 +473,7 @@ public static class Program
         return new ParsedArgs(
             myCall, transport, baudRate, listen, target, mod128, TimeSpan.FromSeconds(keepaliveSeconds),
             window, paclen, retries, frack, ackDelay, noXid,
-            idleTimeout, wait, silent, traceFrames);
+            idleTimeout, wait, silent, traceFrames, binary);
     }
 
     // A plain unsigned whole number: no sign, whitespace, separators or exponent.
@@ -534,9 +546,18 @@ public static class Program
                                      trace.
               -b l|e                 Backoff. Accepted and ignored: the library adapts T1
                                      from the measured round trip and has no selector.
-              -r, -t, -R, -8         Raw mode, talk mode, no remote commands, UTF-8.
-                                     Accepted and ignored: axcall is always raw and
-                                     always UTF-8, and has no remote commands to disable.
+              -r                     Raw mode: a byte pipe. Stdin reaches the link
+                                     exactly as it arrives and the link reaches stdout
+                                     exactly as it arrives, with no line framing, no CR
+                                     appended and no CR-to-LF translation. With -S this
+                                     is a clean 8-bit pipe, so axcall can sit in a
+                                     pipeline or under an ssh ProxyCommand.
+              -t                     Line mode: read a line, send it CR-terminated, and
+                                     translate received CR to LF for the terminal. The
+                                     default, and the opposite of -r; last one wins.
+              -R, -8                 No remote commands, UTF-8. Accepted and ignored:
+                                     axcall is always UTF-8 in line mode and has no
+                                     remote commands to disable.
               -v                     Show version info (SDL + runtime libs).
               -h                     Show this help. Classic axcall's -h selects slave
                                      mode; axcall has no screen modes.
@@ -574,8 +595,8 @@ public static class Program
               -V, --version          Same as -v.
               --help                 Same as -h.
 
-            -T, -W, -S and -d also have the long spellings --idle-timeout, --wait,
-            --silent and --debug.
+            -T, -W, -S, -d, -r and -t also have the long spellings --idle-timeout,
+            --wait, --silent, --debug, --raw and --talk.
 
             Exit status: 0 the link closed, 1 fatal, 2 usage, 3 could not open the
             modem, 4 connect refused or timed out, {SessionRelay.IdleTimeoutExitCode} idle timeout.

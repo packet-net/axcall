@@ -33,8 +33,8 @@ A leading `/`, `./` or `../` makes it a device; a colon anywhere else makes it a
 | `-w window` | k, 1..7 or 1..63 | same, 1..7 or 1..127 |
 | `-m s\|e` | modulus 8 / 128 | same (`--mod128` is a long spelling of `-m e`) |
 | `-b l\|e` | backoff | accepted and ignored, value still validated |
-| `-r` | raw mode | accepted and ignored: axcall is always raw |
-| `-t` | talk mode | accepted and ignored: axcall has no screen modes |
+| `-r` | raw mode | same: a byte pipe, no translation either way |
+| `-t` | talk mode | line mode, the default; the opposite of `-r` |
 | `-R` | disable remote commands | accepted and ignored: axcall has none |
 | `-8` | UTF-8 | accepted and ignored: axcall is always UTF-8 |
 | `-i` | IBM850 | refused: ignoring it would produce mojibake, not nothing |
@@ -99,6 +99,8 @@ That case is much more likely to be a ported script asking for slave mode, and p
 **No NET/ROM or Rose.** Classic picks the address family by trying the port name against `axports`, then `nrports`, then `rsports`, and the same binary is installed as `netromcall` and `rosecall`. We are AX.25 only.
 
 **No file transfer, no `~` escapes, no menus.** Classic has YAPP, YAPP-C, 7plus and autobin, a status line and a menu bar. This is a pipe with a link layer under it.
+
+With `-r` it is literally a pipe: byte transparent in both directions, which is what classic's raw mode was and what its man page meant by "-r together with -S in order to be really transparent". On end of input axcall drains whatever is still queued or unacknowledged before hanging up, so `cat file | axcall -r radio gb7rdg` delivers the whole file rather than the first window; classic got that for free from the kernel socket, and we have to do it ourselves.
 
 ## Footnote
 

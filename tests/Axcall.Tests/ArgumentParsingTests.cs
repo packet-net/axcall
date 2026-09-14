@@ -267,15 +267,46 @@ public sealed class ArgumentParsingTests
     }
 
     [Theory]
-    // Screen modes, remote commands and encoding: axcall is always raw, always
-    // UTF-8, and has no remote commands to disable.
-    [InlineData("-r")]
-    [InlineData("-t")]
+    // Remote commands and encoding: axcall has no remote commands to disable
+    // and is always UTF-8 in line mode.
     [InlineData("-R")]
     [InlineData("-8")]
     public void Inapplicable_Classic_Flags_Are_Accepted_And_Ignored(string flag)
     {
         Program.ParseArgs(Line(flag)).Should().NotBeNull();
+    }
+
+    [Theory]
+    [InlineData("-r")]
+    [InlineData("--raw")]
+    public void Raw_Selects_Binary_Mode(string flag)
+    {
+        Program.ParseArgs(Line(flag))!.Binary.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("-t")]
+    [InlineData("--talk")]
+    public void Talk_Selects_Line_Mode(string flag)
+    {
+        Program.ParseArgs(Line(flag))!.Binary.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Line_Mode_Is_The_Default()
+    {
+        Program.ParseArgs(Line())!.Binary.Should().BeFalse();
+    }
+
+    [Theory]
+    // -r and -t select the same thing from opposite ends, so the last one on
+    // the line wins, as it does in the kernel version.
+    [InlineData(new[] { "-t", "-r" }, true)]
+    [InlineData(new[] { "-r", "-t" }, false)]
+    [InlineData(new[] { "-r", "-t", "-r" }, true)]
+    public void Raw_And_Talk_Are_Last_One_Wins(string[] flags, bool expectBinary)
+    {
+        Program.ParseArgs(Line(flags))!.Binary.Should().Be(expectBinary);
     }
 
     [Fact]

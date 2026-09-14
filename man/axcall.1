@@ -165,10 +165,32 @@ still checked, so a stray
 .B \-b 9600
 is reported rather than passing quietly.
 .TP
-.BR \-r ", " \-t ", " \-R ", " \-8
-Raw mode, talk mode, no remote commands, and UTF\-8. All four are accepted and
-ignored: axcall is always raw and always UTF\-8, and has no remote commands
-(#BIN#, 7plus, //echo) to disable.
+.B \-r
+Raw mode: a byte pipe. Standard input reaches the link exactly as it arrives
+and the link reaches standard output exactly as it arrives, with no line
+framing, no CR appended on send and no CR\-to\-LF translation on receive. Input
+is read in frame\-sized bites, as the kernel version read
+.I paclen
+at a time.
+.IP
+With
+.B \-S
+this is a clean 8 bit pipe and nothing else, which is what the kernel version
+meant by "-r together with -S in order to be really transparent". It is what
+makes axcall usable in a shell pipeline, or as an
+.BR ssh (1)
+ProxyCommand.
+.TP
+.B \-t
+Line mode: read a line, send it CR\-terminated, and translate received CR and
+CRLF to LF so the terminal advances a line. The default, and the opposite of
+.BR \-r ;
+if both are given the last one wins.
+.TP
+.BR \-R ", " \-8
+No remote commands, and UTF\-8. Both are accepted and ignored: axcall is always
+UTF\-8 in line mode, and has no remote commands (#BIN#, 7plus, //echo) to
+disable.
 .TP
 .B \-v
 Display the version, including the versions of the SDL spec tables and the
@@ -245,9 +267,16 @@ The same as
 The same as
 .BR \-h .
 .PP
-.BR \-T ", " \-W ", " \-S " and " \-d
+.BR \-T ", " \-W ", " \-S ", " \-d ", " \-r " and " \-t
 also have the long spellings
-.BR \-\-idle\-timeout ", " \-\-wait ", " \-\-silent " and " \-\-debug .
+.BR \-\-idle\-timeout ", " \-\-wait ", " \-\-silent ", " \-\-debug ", "
+.BR \-\-raw " and " \-\-talk .
+.PP
+On end of input axcall finishes sending whatever is still queued or
+unacknowledged before it hangs up, so
+.B "cat file | axcall \-r radio gb7rdg"
+delivers the whole file rather than the first window of it. Interrupting with
+Ctrl\-C does not wait: it hangs up at once.
 .SH PORTS FILE
 The ports file binds a short name to a transport, a callsign and optional link
 defaults, so that
@@ -308,6 +337,43 @@ idle timeout fired and closed the link.
 .PP
 Note that the kernel version exits 0 even when the connect fails, so a script
 that silently tolerated a dead link will start reporting one.
+.SH EXAMPLES
+A terminal session, which is the default:
+.PP
+.in +4n
+.EX
+axcall radio gb7rdg
+.EE
+.in
+.PP
+Send a file. The receiving end has no input of its own, so it needs
+.B \-W
+to stop it hanging up the moment its standard input ends:
+.PP
+.in +4n
+.EX
+# receiving station
+axcall \-l \-r \-S \-W \-s M0LTE\-1 radio > received.bin
+
+# sending station
+cat file.bin | axcall \-r \-S radio m0lte\-1
+.EE
+.in
+.PP
+axcall finishes sending what is queued before it hangs up, so the whole file
+arrives and not just the first window.
+.PP
+Send something and wait for the reply, which is the pairing worth remembering:
+.B \-W
+holds the link open past the end of input, and
+.B \-T
+closes it once the far end has gone quiet. This exits 5.
+.PP
+.in +4n
+.EX
+echo "help" | axcall \-W \-T 10 radio gb7rdg
+.EE
+.in
 .SH ENVIRONMENT
 .TP
 .B AXCALL_PORTS
