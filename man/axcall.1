@@ -1,0 +1,307 @@
+.TH AXCALL 1 "14 September 2026" "axcall" "Linux Programmer's Manual"
+.SH NAME
+axcall \- make an AX.25 connection over KISS
+.SH SYNOPSIS
+.B axcall
+.RI [ options ]
+.I port destination
+.br
+.B axcall
+.RI [ options ]
+.B \-\-listen
+.I port
+.SH DESCRIPTION
+.B axcall
+is a connected-mode AX.25 terminal. It dials a remote station, pipes your
+keyboard to it and its replies to your screen, and disconnects cleanly. As is
+normal in AX.25 it runs entirely in line mode, and CR/LF translation is done
+transparently in both directions. It is 8 bit clean and always UTF\-8.
+.PP
+It is not the
+.B axcall
+that came with ax25\-apps. That one opened an
+.B AF_AX25
+socket on the Linux kernel AX.25 stack, which has since been withdrawn. This one
+carries its own AX.25 v2.2 data link and speaks KISS to a TNC over a serial port
+or over TCP, so it needs no kernel support,
+.BR kissattach (8)
+or
+.BR axparms (8),
+and no privilege. The command line is deliberately the old one, so existing
+scripts and existing habits mostly carry over. See
+.B COMPATIBILITY
+for where they do not.
+.PP
+The program provides no terminal emulation, no file transfer and no
+.RB ` ~ '
+escapes. It is a pipe with a link layer under it.
+.SH PORT
+The
+.I port
+argument says which TNC to talk to. It is one of three things, told apart by
+shape before anything is opened:
+.TP
+.I name
+A name from the ports file, for example
+.BR radio .
+See
+.BR "PORTS FILE" .
+.TP
+.IR /dev/ttyUSB0 " or " /dev/ttyUSB0:57600
+A serial device, optionally with the baud rate. Anything starting with
+.RB ` / ',
+.RB ` ./ '
+or
+.RB ` ../ '
+is taken as a path.
+.TP
+.I 10.45.0.66:8001
+A KISS\-over\-TCP endpoint. A bracketed IPv6 literal such as
+.I [::1]:8001
+works too.
+.PP
+.B \-\-serial
+and
+.B \-\-tcp
+give the same two transports explicitly. When either is used the single
+positional argument is the
+.IR destination .
+.SH OPTIONS
+These are spelled as the kernel AX.25
+.B axcall
+spelled them.
+.TP
+.BI \-s " mycall"
+Connect using the specified source callsign. Required unless the port names one.
+.TP
+.BI \-p " paclen"
+The largest amount of data to send in each frame, N1 (PACLEN). 1 to 1024,
+default 256. XID may lower it to the peer's. The kernel version stopped at 500.
+.TP
+.BI \-w " window"
+The send window, k (MAXFRAME): frames in flight before an acknowledgement is
+needed. 1 to 7, or 1 to 127 with
+.BR "\-m e" .
+The default is 4 on either modulus, after which XID takes the lower of what each
+end offers. With SREJ negotiated the window is held to half the modulus, so 5 to
+7 take effect only on a go\-back\-N link.
+.TP
+.BI \-m " s|e"
+The AX.25 mode to use:
+.B s
+for normal (modulo 8) operation, the default, and
+.B e
+for extended (modulo 128, AX.25 v2.2). An extended dial falls back to modulo 8
+if the peer answers FRMR or DM, so the call still goes through. Inbound sessions
+use whichever the caller asks for.
+.TP
+.BI \-b " l|e"
+The method of backoff. Accepted and ignored: this axcall adapts T1 from the
+measured round trip and has no linear/exponential selector. The argument is
+still checked, so a stray
+.B \-b 9600
+is reported rather than passing quietly.
+.TP
+.BR \-r ", " \-t ", " \-R ", " \-8
+Raw mode, talk mode, no remote commands, and UTF\-8. All four are accepted and
+ignored: axcall is always raw and always UTF\-8, and has no remote commands
+(#BIN#, 7plus, //echo) to disable.
+.TP
+.B \-v
+Display the version, including the versions of the SDL spec tables and the
+runtime libraries it was built against.
+.TP
+.B \-h
+Show a usage summary. Note that the kernel version's
+.B \-h
+selects slave mode; see
+.BR COMPATIBILITY .
+.PP
+The options below have no counterpart in the kernel version, and are spelled
+long so they cannot collide with the letters above.
+.TP
+.BI \-\-serial " device[:baud]"
+Use this serial device, instead of naming it as the
+.I port
+argument.
+.TP
+.BI \-\-tcp " host:port"
+Use KISS over TCP, instead of naming it as the
+.I port
+argument.
+.TP
+.BI \-\-baud " rate"
+Serial baud rate, default 57600. Overrides a
+.RB ` :baud '
+suffix. Ignored for a TCP port.
+.TP
+.BR \-l ", " \-\-listen
+Wait for an inbound connection instead of calling out. The kernel stack left
+this to
+.BR ax25d (8).
+.TP
+.B \-\-mod128
+The same as
+.BR "\-m e" .
+.TP
+.BI \-\-keepalive " seconds"
+The idle\-link poll interval, T3, default 300. With no traffic for this long
+axcall sends an RR poll to check the link is still up. Must be a positive whole
+number: the link layer has no "never poll" setting, so a zero timer would poll
+continuously. This
+.I keeps a link up
+and is not the kernel version's
+.BR \-T ,
+which drops one.
+.TP
+.BI \-\-retries " n"
+Retries before the link is dropped, N2 (RETRY). 1 to 255, default 10.
+.TP
+.BI \-\-frack " seconds"
+The initial acknowledgement timeout, T1 (FRACK). 0.5 to 60, decimals allowed,
+default 6. Only the starting point: T1 is adapted from the measured round trip
+after the first exchanges.
+.TP
+.BI \-\-ack\-delay " seconds"
+The acknowledgement delay, T2 (RESPTIME). 0 to 30, decimals allowed, default 3.
+Received frames are acknowledged together once this has elapsed; 0 acknowledges
+every frame at once.
+.TP
+.B \-\-no\-xid
+Skip the XID exchange sent before the SABM on a modulo\-8 dial. Without it axcall
+offers SREJ (selective retransmit) and its window; with it the link is plain
+go\-back\-N. Outbound only; an accepted
+.B \-m e
+dial negotiates XID after the UA regardless.
+.TP
+.BR \-V ", " \-\-version
+The same as
+.BR \-v .
+.TP
+.B \-\-help
+The same as
+.BR \-h .
+.SH PORTS FILE
+The ports file binds a short name to a transport, a callsign and optional link
+defaults, so that
+.B axcall radio gb7rdg
+works with nothing else on the line. It is the replacement for
+.BR axports (5),
+which named a callsign, a paclen and a window but no device, because
+.BR kissattach (8)
+bound the tty to the port name separately.
+.PP
+Columns are whitespace\-separated. The first three are mandatory. A
+.RB ` \- '
+means "not set" in any of the optional ones, and anything after the window
+column is a description that is read by people and ignored by axcall. Blank
+lines and lines beginning with
+.RB ` # '
+are skipped.
+.PP
+.in +4n
+.EX
+# name   callsign   transport            paclen  window  description
+radio    M0LTE\-7    /dev/ttyUSB0:57600   256     4       144.800 MHz
+node     M0LTE\-7    10.45.0.66:8001      \-       \-       LinBPQ
+.EE
+.in
+.PP
+.I /etc/axcall/ports
+is read first and
+.I ~/.config/axcall/ports
+second, the second replacing same\-named entries from the first. A malformed line
+fails the whole load rather than being skipped, so a typo is reported instead of
+quietly becoming "unknown port".
+.PP
+Precedence throughout is that a command\-line flag beats the ports file, which
+beats the built\-in default.
+.SH EXIT STATUS
+.TP
+.B 0
+The session ran and the link was closed.
+.TP
+.B 1
+A fatal error.
+.TP
+.B 2
+A usage error: the command line, or the ports file.
+.TP
+.B 3
+The modem could not be opened: no such serial device, permission denied, or the
+TCP connection was refused.
+.TP
+.B 4
+The connect was refused by the peer (DM) or timed out.
+.PP
+Note that the kernel version exits 0 even when the connect fails, so a script
+that silently tolerated a dead link will start reporting one.
+.SH ENVIRONMENT
+.TP
+.B AXCALL_PORTS
+When set, names the single ports file to read, instead of the two default paths.
+.SH FILES
+.TP
+.I /etc/axcall/ports
+System ports file.
+.TP
+.I ~/.config/axcall/ports
+Per\-user ports file, overriding same\-named entries in the system one.
+.RB ( $XDG_CONFIG_HOME
+is honoured.)
+.SH COMPATIBILITY
+The command line is the kernel AX.25
+.BR axcall 's,
+with these differences.
+.PP
+.B \-h
+means
+.BR \-\-help ,
+not slave mode. Slave mode was one of three curses screen modes that do not
+exist here, and
+.B \-h
+for help is near\-universal. On its own it prints the usage summary; alongside
+other arguments it is a usage error, because printing help and exiting 0 would
+look to a ported script like a successful call.
+.PP
+.BR \-T ", " \-W ", " \-S " and " \-d
+are recognised but not yet implemented, and say so.
+.PP
+.B \-i
+(IBM850) is refused. Ignoring it would produce mojibake rather than nothing.
+.PP
+A digipeater path after the
+.IR destination ,
+with or without the literal
+.BR via ,
+is recognised but not yet supported, and is refused rather than ignored.
+.PP
+NET/ROM and Rose are not supported. The kernel version picked the address family
+by trying the port name against
+.BR axports (5),
+then
+.BR nrports (5),
+then
+.BR rsports (5),
+and the same binary was installed as
+.B netromcall
+and
+.BR rosecall .
+.PP
+There is no ASCII, YAPP, YAPP\-C or 7plus file transfer, no
+.RB ` ~ '
+escape commands, no status line and no menu bar.
+.SH SEE ALSO
+.BR axlisten (1),
+.BR ax25 (4)
+.PP
+Project home:
+.UR https://github.com/packet-net/axcall
+.UE
+.SH AUTHOR
+Tom Fanning M0LTE.
+.PP
+The command line this one imitates is that of the ax25\-apps
+.BR axcall ,
+by Alexander Tietzel DG6XA, Joerg Reuter DL1BKE, Alan Cox GW4PTS, Jonathan
+Naylor G4KLX and Steve Henson G6IXS.

@@ -55,6 +55,33 @@ jobs:
           done
           ls -la dist
 
+      # The .deb carries the same self-contained single-file binary as the loose
+      # download above, so the two are not different programs. amd64, arm64 and
+      # armhf all cross-publish from this x64 runner.
+      - name: Build .deb packages
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.tag.outputs.version }}"
+          # The runner is self-hosted and not ephemeral, so a stale artifacts/
+          # from a previous tag would otherwise be copied into this release.
+          rm -rf artifacts
+          for rid in linux-x64 linux-arm64 linux-arm; do
+            echo "::group::deb $rid"
+            scripts/build-deb.sh "$rid" "$VERSION"
+            echo "::endgroup::"
+          done
+          cp artifacts/*.deb dist/
+          ls -la dist
+
+      # Proves the .deb installs, runs and purges on a pristine Debian and
+      # Ubuntu, which is where a self-contained publish missing a native
+      # dependency would otherwise only show up on a user's machine. amd64
+      # only: the runner cannot exec the arm binaries.
+      - name: Smoke-test the amd64 .deb
+        # Globbed, not named: a prerelease tag becomes a ~ version in the
+        # filename. artifacts/ was cleaned above, so exactly one file matches.
+        run: scripts/deb-install-smoke.sh artifacts/axcall_*_amd64.deb
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:

@@ -7,6 +7,12 @@
     <!-- Baseline version for local/dev builds; the release workflow
          overrides this with -p:Version from the git tag. -->
     <Version>0.2.1</Version>
+    <!-- No ICU. axcall is invariant-culture throughout by design (callsigns
+         are upper-cased with ToUpperInvariant, every number is parsed with
+         InvariantCulture), so it loses nothing, and a self-contained publish
+         then needs no libicu on the target. That is what lets the .deb declare
+         a short Depends and run on a bare base image. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
