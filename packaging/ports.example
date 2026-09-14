@@ -1,0 +1,21 @@
+# axcall ports file.
+#
+# Binds a short name to a transport, so "axcall radio gb7rdg" works with
+# nothing else on the line. This is the replacement for /etc/ax25/axports,
+# which named a callsign, a paclen and a window but no device, because
+# kissattach bound the tty to the port name separately.
+#
+# Copy to /etc/axcall/ports for everyone, or ~/.config/axcall/ports for
+# yourself; the per-user file replaces same-named entries in the system one.
+#
+# The first three columns are mandatory. "-" means "not set" in any of the
+# optional ones, and anything after the window column is a description that is
+# read by people and ignored by axcall. A command-line flag beats this file,
+# which beats the built-in default.
+#
+# The transport column takes a serial device, optionally with a baud rate
+# (the default is 57600), or a KISS-over-TCP host and port.
+
+# name   callsign   transport            paclen  window  description
+#radio   M0LTE-7    /dev/ttyUSB0:57600   256     4       144.800 MHz
+#node    M0LTE-7    10.45.0.66:8001      -       -       LinBPQ
