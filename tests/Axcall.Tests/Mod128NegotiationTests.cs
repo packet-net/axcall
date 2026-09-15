@@ -56,13 +56,15 @@ public sealed class Mod128NegotiationTests
         var caller = connectorStatus.Snapshot();
         var answerer = listenerStatus.Snapshot();
 
-        // What each end offered, reported the moment the link came up.
-        caller.Should().Contain("connected to AXLSTN-1 (mod-128, window 100, paclen 128, SREJ off)");
-        answerer.Should().Contain("connection from AXCONN-2 (mod-128, window 7, paclen 256, SREJ off)");
+        // What each end offered, reported the moment the link came up. A v2.2 link
+        // selects selective reject at establishment, and with SREJ in effect the window
+        // is held to half the modulus, so the caller's 100 runs at 64 and says so.
+        caller.Should().Contain("connected to AXLSTN-1 (mod-128, window 100 (64 in effect), paclen 128, SREJ on)");
+        answerer.Should().Contain("connection from AXCONN-2 (mod-128, window 7, paclen 256, SREJ on)");
 
         // What they agreed a round trip later: the lesser of each.
-        caller.Should().Contain("negotiated with AXLSTN-1 (mod-128, window 7, paclen 128, SREJ off)");
-        answerer.Should().Contain("negotiated with AXCONN-2 (mod-128, window 7, paclen 128, SREJ off)");
+        caller.Should().Contain("negotiated with AXLSTN-1 (mod-128, window 7, paclen 128, SREJ on)");
+        answerer.Should().Contain("negotiated with AXCONN-2 (mod-128, window 7, paclen 128, SREJ on)");
 
         await cts.CancelAsync();
         await Swallow(connect);
