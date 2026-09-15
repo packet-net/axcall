@@ -11,7 +11,7 @@ Nothing here has been tested against **JNOS**, **XRouter**, or the **Linux kerne
 Three specific things to be suspicious of until they are tested more widely:
 
 - **The 328-byte frame ceiling** is LinBPQ's KISS receive limit and nothing else. Another stack may take more, or less. `--mtu` will go above it and warns rather than refusing.
-- **The ARP protocol type we send** (0x0800) is read from the Linux kernel's generic ARP path, not observed. If a kernel peer ever ignores an ARP request from us, this is the first assumption to check.
+- ~~**The ARP protocol type we send** (0x0800) is read from the Linux kernel's generic ARP path, not observed.~~ **Measured, and it was wrong.** See below: every implementation sends 0x00CC and the kernel refuses anything else. Fixed.
 - **"VJ compression is a NOS thing"** rests on LinBPQ not implementing it. That says nothing about how common it is among the peers that do.
 
 A proper multi-implementation interop campaign is tracked in #53; it is a piece of work in its own right and not a footnote to this one.
@@ -76,18 +76,31 @@ Given a 300-byte IP packet to route, LinBPQ emits two UI frames with PID 0xCC:
 
 This is the convenient answer. A TUN device hands fragments to the kernel and the kernel reassembles them, so `axtun` implements nothing for this case.
 
-### The ARP protocol type field is disputed and unchecked
+### The ARP protocol type field is not what RFC 826 suggests, and the kernel enforces it
 
 AX.25 ARP is ordinary RFC 826 ARP with callsigns where the hardware addresses go: hardware type 3, hardware length 7, protocol length 4, thirty bytes, in a UI frame with PID 0xCD.
 
-Two values are in circulation for the protocol type field:
+**This is the one place a guess shipped as a bug, so it is worth reading in full.**
 
-- **0x00CC**, the AX.25 PID for IP widened to sixteen bits. *Observed:* this is what LinBPQ sends. It is also said to be what the NOS-derived stacks send, which has not been checked here.
-- **0x0800**, `ETH_P_IP`. *Read, not observed:* the Linux kernel's generic ARP code fills the field in from the protocol rather than from anything AX.25 specific, so a kernel AX.25 device should send this. No kernel peer has been tested.
+The field takes one of two values, and the answer is not the obvious one.
 
-*Observed:* LinBPQ does not check the field. `ProcessAXARPMsg` dispatches on the operation code alone, and for a request addressed to its own address it mutates the message in place and sends it back, so the reply carries whatever the request used. Asking it with one of each and reading the replies confirms this, and that is a test.
+- **0x00CC**, the AX.25 PID for IP widened to sixteen bits. *Observed on the air from all three implementations tested:* LinBPQ, XRouter, and the Linux kernel's own AX.25 stack.
+- **0x0800**, `ETH_P_IP`, which is what RFC 826 and the kernel's generic ARP code would lead you to expect. *Observed from nothing.*
 
-`axtun` therefore sends 0x0800, accepts anything, and reflects what a request used. Accepting anything is safe on the evidence; **sending 0x0800 is the bet**, and it rests on reading rather than on a test. If a kernel peer ever ignores an ARP request from us, start here.
+The first version of `axtun` sent 0x0800, on the strength of reading the kernel's generic ARP path and reasoning that the field is filled in from the protocol rather than from anything AX.25 specific. That reading was half right and the conclusion was wrong: `arp_create` has an explicit `ARPHRD_AX25` case that overrides the generic behaviour with `AX25_P_IP`, and `arp_process` has the matching check on receive.
+
+Measured directly, by asking a kernel peer for its own address twice:
+
+```
+-- who has 44.131.20.10, protocol type 0x0800 (what axtun sent)
+   -> 0 frames back
+-- who has 44.131.20.10, protocol type 0x00CC
+   RX: AXKERN>AXPRB pid=0xcd  reply
+```
+
+So a Linux AX.25 station would **never** have answered an ARP request from `axtun`, silently. LinBPQ and XRouter would have, because neither checks the field, which is exactly why testing against them could not have caught it.
+
+`axtun` now sends 0x00CC, accepts either, and reflects what a request used. The reflection matters for the same reason it always did: it cannot be wrong about a field it does not choose.
 
 ### LinBPQ's virtual-circuit IP transmission is broken on 64-bit
 

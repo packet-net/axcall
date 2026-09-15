@@ -127,7 +127,7 @@ public sealed class IpOverAx25Tests
     /// </remarks>
     [Theory]
     [InlineData(AxArpMessage.ProtocolTypeIp)]
-    [InlineData(AxArpMessage.ProtocolTypeBpq)]
+    [InlineData(AxArpMessage.ProtocolTypeEthernetIp)]
     public async Task Linbpq_Ignores_The_Arp_Protocol_Type_And_Reflects_It(ushort protocolType)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(180));

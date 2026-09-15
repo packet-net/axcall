@@ -63,35 +63,41 @@ public sealed record AxArpMessage(
     public const ushort HardwareTypeAx25 = 3;
 
     /// <summary>
-    /// ETH_P_IP. What the Linux kernel is expected to put in the protocol type
-    /// field of an ARP message on an AX.25 device, because the field is filled
-    /// in by the generic ARP code from the protocol rather than by anything
-    /// AX.25 specific.
+    /// AX25_P_IP: the AX.25 PID for IP widened to sixteen bits. The protocol
+    /// type every implementation puts in an AX.25 ARP message, and the only
+    /// one the Linux kernel will answer.
     /// </summary>
     /// <remarks>
-    /// Read from the kernel's ARP path, not observed on the air. Nothing here
-    /// has yet been tested against a kernel AX.25 peer, so this is the value
-    /// most likely to be right rather than the value known to be right. It is
-    /// the one sent, which makes it the assumption worth checking first if a
-    /// kernel peer ever ignores an ARP request from us.
+    /// <para>
+    /// Observed from LinBPQ, from XRouter, and from the Linux kernel's own
+    /// AX.25 stack, all three of which send exactly this. The kernel is the
+    /// one that also <em>checks</em> it: an ARP request carrying anything else
+    /// is discarded without a reply. Measured by asking a kernel peer for its
+    /// own address twice, once with each value: 0x0800 got silence, 0x00CC got
+    /// an answer.
+    /// </para>
+    /// <para>
+    /// This is not a free choice and it is not the obvious one. RFC 826's
+    /// protocol type field would naturally hold ETH_P_IP, and the kernel's
+    /// generic ARP code fills it in that way for every other link type;
+    /// <c>arp_create</c> has an explicit ARPHRD_AX25 case that overrides it,
+    /// and <c>arp_process</c> has the matching check. Reading half of that and
+    /// guessing is how this shipped as 0x0800 in the first place, which would
+    /// have meant no Linux peer ever answering an ARP request from us.
+    /// </para>
     /// </remarks>
-    public const ushort ProtocolTypeIp = 0x0800;
+    public const ushort ProtocolTypeIp = 0x00CC;
 
     /// <summary>
-    /// 0x00CC, the AX.25 PID for IP widened to sixteen bits. What LinBPQ puts
-    /// in the protocol type field.
+    /// ETH_P_IP, the value RFC 826 would lead you to expect in this field.
     /// </summary>
     /// <remarks>
-    /// Two values in one field. LinBPQ does not check it: it dispatches on the
-    /// operation code alone and reflects whatever it was sent, which was
-    /// confirmed by sending it one of each and reading the replies. The
-    /// NOS-derived stacks are widely said to use this value too; that has not
-    /// been tested here. So we send <see cref="ProtocolTypeIp"/>, accept
-    /// anything, and echo back what a request used, which is the only
-    /// behaviour that cannot be wrong about a field two implementations
-    /// disagree on.
+    /// Accepted on receive and never sent. Nothing observed puts it here, and
+    /// the Linux kernel actively refuses it, but accepting it costs nothing
+    /// and there is no reason to be the implementation that rejects a
+    /// reasonable reading of the RFC.
     /// </remarks>
-    public const ushort ProtocolTypeBpq = 0x00CC;
+    public const ushort ProtocolTypeEthernetIp = 0x0800;
 
     private const int HardwareLength = Ax25Address.EncodedLength;
     private const int ProtocolLength = 4;
@@ -139,7 +145,8 @@ public sealed record AxArpMessage(
         if (BinaryPrimitives.ReadUInt16BigEndian(bytes) != HardwareTypeAx25)
             return false;
 
-        // The protocol type is read but not checked; see ProtocolTypeBpq.
+        // Read but not checked, so a peer using ETH_P_IP is still heard;
+        // see ProtocolTypeIp for why we only ever send AX25_P_IP.
         var protocolType = BinaryPrimitives.ReadUInt16BigEndian(bytes[2..]);
 
         if (bytes[4] != HardwareLength || bytes[5] != ProtocolLength)
