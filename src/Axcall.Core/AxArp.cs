@@ -63,24 +63,33 @@ public sealed record AxArpMessage(
     public const ushort HardwareTypeAx25 = 3;
 
     /// <summary>
-    /// ETH_P_IP, which is what the Linux kernel puts in the protocol type
+    /// ETH_P_IP. What the Linux kernel is expected to put in the protocol type
     /// field of an ARP message on an AX.25 device, because the field is filled
     /// in by the generic ARP code from the protocol rather than by anything
     /// AX.25 specific.
     /// </summary>
+    /// <remarks>
+    /// Read from the kernel's ARP path, not observed on the air. Nothing here
+    /// has yet been tested against a kernel AX.25 peer, so this is the value
+    /// most likely to be right rather than the value known to be right. It is
+    /// the one sent, which makes it the assumption worth checking first if a
+    /// kernel peer ever ignores an ARP request from us.
+    /// </remarks>
     public const ushort ProtocolTypeIp = 0x0800;
 
     /// <summary>
-    /// 0x00CC, the AX.25 PID for IP widened to sixteen bits, which is what
-    /// LinBPQ and the NOS-derived stacks put in the protocol type field.
+    /// 0x00CC, the AX.25 PID for IP widened to sixteen bits. What LinBPQ puts
+    /// in the protocol type field.
     /// </summary>
     /// <remarks>
-    /// Two implementations, two different values in the same field, and both
-    /// have been on the air for decades. Neither checks it: LinBPQ dispatches
-    /// on the operation code alone and reflects whatever it was sent, which
-    /// was confirmed by sending it one of each and reading the replies. So we
-    /// send <see cref="ProtocolTypeIp"/>, accept either, and echo back what a
-    /// request used.
+    /// Two values in one field. LinBPQ does not check it: it dispatches on the
+    /// operation code alone and reflects whatever it was sent, which was
+    /// confirmed by sending it one of each and reading the replies. The
+    /// NOS-derived stacks are widely said to use this value too; that has not
+    /// been tested here. So we send <see cref="ProtocolTypeIp"/>, accept
+    /// anything, and echo back what a request used, which is the only
+    /// behaviour that cannot be wrong about a field two implementations
+    /// disagree on.
     /// </remarks>
     public const ushort ProtocolTypeBpq = 0x00CC;
 

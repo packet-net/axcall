@@ -118,13 +118,28 @@ public sealed class AxtunArgumentTests
     }
 
     [Fact]
-    public void An_Mtu_Above_What_A_Frame_Can_Carry_Is_Refused()
+    public void An_Absurd_Mtu_Is_Refused()
     {
         using var _ = new ConfigScope(ports: OnePort);
 
-        Axtun.Program.ParseArgs(["--addr", "44.131.20.1/24", "--mtu", "2000", "radio"]).Should().BeNull();
+        Axtun.Program.ParseArgs(["--addr", "44.131.20.1/24", "--mtu", "9000", "radio"]).Should().BeNull();
         Axtun.Program.ParseArgs(["--addr", "44.131.20.1/24", "--mtu", "40", "radio"]).Should().BeNull();
         Axtun.Program.ParseArgs(["--addr", "44.131.20.1/24", "--mtu", "256", "radio"])!.Mtu.Should().Be(256);
+    }
+
+    /// <summary>
+    /// The 312-byte ceiling is one observation about one peer, not a property
+    /// of AX.25. Refusing to go above it would make this tool the reason
+    /// somebody cannot use a link that works, so it warns instead.
+    /// </summary>
+    [Fact]
+    public void An_Mtu_Above_The_Only_Tested_Peer_Is_Allowed()
+    {
+        using var _ = new ConfigScope(ports: OnePort);
+
+        var above = Ax25Ip.MaxMtu(0) + 1;
+        Axtun.Program.ParseArgs(["--addr", "44.131.20.1/24", "--mtu", $"{above}", "radio"])!
+            .Mtu.Should().Be(above);
     }
 
     /// <summary>

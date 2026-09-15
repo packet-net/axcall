@@ -1,8 +1,24 @@
-# IP over AX.25: what a real implementation actually does
+# IP over AX.25: what one implementation actually does
 
-Everything in this document is an observation against LinBPQ 6.0.25.28 on a simulated 1200 baud AFSK channel, not a reading of a specification. Where it contradicts a man page, the man page is not wrong so much as incomplete, and the observation is what `axtun` is built to.
+Everything in this document is an observation against **LinBPQ 6.0.25.28**, on a simulated 1200 baud AFSK channel, not a reading of a specification. Where it contradicts a man page, the man page is not wrong so much as incomplete, and the observation is what `axtun` is built to.
 
-The reproducible half lives in `tests/Axcall.Tests/Integration/IpOverAx25Tests.cs`, which runs against the same LinBPQ container the connected-mode tests use. The rest was measured by hand and is recorded here because it shaped the design.
+## Read this first: one peer is not the field
+
+LinBPQ is one implementation and is treated here as the reference only because it was the one already running in this repo's test harness. That is a convenience, not a judgement about its correctness, and the work below turned up a real 64-bit bug in it, which is reason enough not to assume the rest of it is right either.
+
+Nothing here has been tested against **JNOS**, **XRouter**, or the **Linux kernel's own AX.25 stack**, and those are the other three things a station is likely to be talking to. Where LinBPQ's behaviour has been turned into a number in the code, it is a default that can be changed rather than a limit that is enforced, and the comment beside it says which implementation it came from.
+
+Three specific things to be suspicious of until they are tested more widely:
+
+- **The 328-byte frame ceiling** is LinBPQ's KISS receive limit and nothing else. Another stack may take more, or less. `--mtu` will go above it and warns rather than refusing.
+- **The ARP protocol type we send** (0x0800) is read from the Linux kernel's generic ARP path, not observed. If a kernel peer ever ignores an ARP request from us, this is the first assumption to check.
+- **"VJ compression is a NOS thing"** rests on LinBPQ not implementing it. That says nothing about how common it is among the peers that do.
+
+A proper multi-implementation interop campaign is tracked in #53; it is a piece of work in its own right and not a footnote to this one.
+
+## Where the evidence lives
+
+The reproducible half is in `tests/Axcall.Tests/Integration/IpOverAx25Tests.cs`, which runs against the same LinBPQ container the connected-mode tests use. The rest was measured by hand and is recorded here because it shaped the design.
 
 ## The setup
 
@@ -28,6 +44,8 @@ The same holds for routing. A packet from an off-net source to an address LinBPQ
 
 ### LinBPQ silently drops any frame over 328 bytes
 
+*One implementation. Not a property of AX.25, and not tested elsewhere.*
+
 `kiss.c` discards a KISS frame longer than 329 bytes, including the KISS type byte:
 
 ```c
@@ -41,7 +59,7 @@ if (len > 329)          // Max ax.25 frame + KISS Ctrl
 
 The `Debugprintf` goes to a log file that is not written unless something else has already opened it, so in practice this is silent. A 544-byte frame was carried to LinBPQ's port by the channel simulator and produced nothing at all: no reply, no error, no log line.
 
-So the largest AX.25 frame worth sending is **328 bytes**, which is 312 bytes of payload with no digipeaters and seven fewer for each one in the path. `Ax25Ip.MaxFrameBytes` is that number, and the interop test sends one frame over the limit, gets silence, then sends one under it and gets an answer, so that the silence is evidence rather than a dead link.
+So the largest frame **LinBPQ** will take is **328 bytes**, which is 312 bytes of payload with no digipeaters and seven fewer for each one in the path. Whether that is the largest frame worth sending in general is exactly the open question. `Ax25Ip.MaxFrameBytes` is that number, and the interop test sends one frame over the limit, gets silence, then sends one under it and gets an answer, so that the silence is evidence rather than a dead link.
 
 ### Splitting is IP fragmentation, not AX.25 segmentation
 
@@ -62,14 +80,14 @@ This is the convenient answer. A TUN device hands fragments to the kernel and th
 
 AX.25 ARP is ordinary RFC 826 ARP with callsigns where the hardware addresses go: hardware type 3, hardware length 7, protocol length 4, thirty bytes, in a UI frame with PID 0xCD.
 
-The protocol type field is filled in differently by the two implementations that matter:
+Two values are in circulation for the protocol type field:
 
-- The Linux kernel sends **0x0800**, `ETH_P_IP`, because the generic ARP code fills the field in from the protocol rather than from anything AX.25 specific.
-- LinBPQ sends **0x00CC**, the AX.25 PID for IP widened to sixteen bits, which is also what the NOS-derived stacks do.
+- **0x00CC**, the AX.25 PID for IP widened to sixteen bits. *Observed:* this is what LinBPQ sends. It is also said to be what the NOS-derived stacks send, which has not been checked here.
+- **0x0800**, `ETH_P_IP`. *Read, not observed:* the Linux kernel's generic ARP code fills the field in from the protocol rather than from anything AX.25 specific, so a kernel AX.25 device should send this. No kernel peer has been tested.
 
-Neither checks it. `ProcessAXARPMsg` dispatches on the operation code alone, and for a request addressed to its own address it mutates the message in place and sends it back, so the reply carries whatever the request used. Asking it with one of each and reading the replies confirms this, and that is a test.
+*Observed:* LinBPQ does not check the field. `ProcessAXARPMsg` dispatches on the operation code alone, and for a request addressed to its own address it mutates the message in place and sends it back, so the reply carries whatever the request used. Asking it with one of each and reading the replies confirms this, and that is a test.
 
-`axtun` therefore sends 0x0800, accepts anything, and reflects what a request used.
+`axtun` therefore sends 0x0800, accepts anything, and reflects what a request used. Accepting anything is safe on the evidence; **sending 0x0800 is the bet**, and it rests on reading rather than on a test. If a kernel peer ever ignores an ARP request from us, start here.
 
 ### LinBPQ's virtual-circuit IP transmission is broken on 64-bit
 
@@ -107,11 +125,11 @@ if (Buffer->PID == 0xCC || Buffer->PID == 0xCD)
 
 but it could not be observed end to end on the air, because nothing is currently sending it correctly.
 
-### Van Jacobson compression is not universal
+### LinBPQ has no Van Jacobson compression
 
 LinBPQ's layer 2 sends PID 0xCC, 0xCD and 0x08 to its IP stack and nothing else. There is no handling of 0x06 or 0x07 anywhere in it.
 
-So VJ header compression belongs to JNOS and the NOS-derived stacks, not to the installed base generally. `axtun` does not implement it, and the man page says so rather than leaving it to be discovered.
+That is all this observation supports. It does not establish that VJ is rare, only that one implementation does without it, and the usual claim that it belongs to JNOS and the NOS-derived stacks has not been checked here. `axtun` does not implement it, which is a scope decision rather than a finding, and the man page says so rather than leaving it to be discovered. If a campaign against JNOS shows compressed peers are common, this is the first thing to add.
 
 ## What that made axtun do
 

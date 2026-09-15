@@ -61,8 +61,9 @@ The prefix length is not optional. It decides what is on-link, and guessing a
 classful default would be wrong almost every time.
 .TP
 .BI \-\-mtu " bytes"
-Interface MTU. The default is 236, and 312 is the most a frame can carry. Only
-meaningful with
+Interface MTU. The default is 236. Above 312 is allowed, with a warning: that
+is the most the only peer yet tested will accept, not a limit of AX.25. See
+SIZES. Only meaningful with
 .BR \-\-addr ,
 since without it the interface is not reconfigured at all.
 .TP
@@ -135,10 +136,14 @@ On receive, both are accepted. A peer whose route says virtual-circuit mode is
 a peer that exists, and refusing its frames would gain nothing.
 .PP
 ARP is PID 0xCD, in the AX.25 form: hardware type 3, seven-octet addresses,
-thirty bytes.
+thirty bytes. The protocol type field is sent as 0x0800, accepted whatever it
+says, and reflected back as it arrived, because LinBPQ uses 0x00CC there and
+the kernel is expected to use 0x0800, and neither appears to check it.
 .PP
 Van Jacobson header compression (PID 0x06) is not implemented. LinBPQ does not
-implement it either; it belongs to the NOS-derived stacks.
+implement it either, and it is usually described as belonging to the
+NOS-derived stacks, but that has not been tested here. A peer that sends
+compressed headers will not be understood.
 .SH EGRESS FILTERING
 .B axtun
 decides what may be transmitted before transmitting it, and starts closed.
@@ -240,20 +245,31 @@ one created by
 .B axtun
 itself disappears when it exits.
 .SH SIZES
-The largest AX.25 frame worth sending here is 328 bytes. That is not a number
-from the specification: LinBPQ discards any KISS frame over 329 bytes including
-the type byte, silently, with nothing on the air and nothing in its log. Each
-digipeater in the path takes another seven bytes off what is left.
+Every number in this section comes from one implementation, LinBPQ 6.0.25.28.
+None of it has been tested against JNOS, XRouter or the kernel's own AX.25
+stack, so treat it as the shape of the default rather than as a property of
+AX.25.
+.PP
+The largest frame LinBPQ will accept is 328 bytes. That is not from the
+specification: it discards any KISS frame over 329 bytes including the type
+byte, silently, with nothing on the air and nothing in its log. Each digipeater
+in the path takes another seven bytes off what is left. Hence a default MTU of
+236, which sits under all of it with room for a path; at 1200 baud the last
+twenty bytes are not what is slowing anything down.
+.PP
+.B \-\-mtu
+will go above that and print a warning rather than refusing, because a ceiling
+measured against one peer should not be the reason a link that works cannot be
+used. If the other end goes quiet after raising it, put it back first: a
+station that discards an overlong frame without a word is indistinguishable
+from one that has gone away.
 .PP
 LinBPQ splits its own output at an IP total length of 252 bytes, using ordinary
 IP fragmentation rather than the AX.25 segmentation of PID 0x08, and pays no
 attention to the PACLEN configured on the port.
 .B axtun
 hands fragments to the kernel and lets it reassemble them, which is what a TUN
-device is for.
-.PP
-The default MTU of 236 sits under all of it with room for a path. At 1200 baud
-the last twenty bytes are not what is slowing anything down.
+device is for, so this needs nothing from either end.
 .SH EXIT STATUS
 .TP
 .B 0

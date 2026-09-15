@@ -27,15 +27,37 @@ namespace Axcall;
 public static class Ax25Ip
 {
     /// <summary>
-    /// The largest AX.25 frame worth sending, in bytes, excluding the FCS.
+    /// The largest frame, excluding the FCS, that every peer tested so far
+    /// will accept.
     /// </summary>
     /// <remarks>
-    /// Measured against LinBPQ 6.0.25.28, which discards any KISS frame over
-    /// 329 bytes including the KISS type byte, without a word on the air or in
-    /// its log. A 544-byte frame was carried to its port by the channel
-    /// simulator and vanished. 329 minus the KISS type byte is 328.
+    /// <para>
+    /// This is not a number from the specification, and it is not a property
+    /// of AX.25. It is one observation about one implementation: LinBPQ
+    /// 6.0.25.28 discards any KISS frame over 329 bytes including the KISS
+    /// type byte, without a word on the air or in its log. A 544-byte frame
+    /// was carried to its port by the channel simulator and vanished. 329
+    /// minus the KISS type byte is 328.
+    /// </para>
+    /// <para>
+    /// JNOS, XRouter and the kernel's own AX.25 stack have not been tested and
+    /// may well take more, or less. Treat this as the default ceiling rather
+    /// than a limit: <c>axtun --mtu</c> will go above it, and says so when it
+    /// does.
+    /// </para>
     /// </remarks>
     public const int MaxFrameBytes = 328;
+
+    /// <summary>
+    /// The largest frame this code will build at all.
+    /// </summary>
+    /// <remarks>
+    /// A backstop rather than a measurement. AX.25 v2.2 negotiates N1 in an
+    /// XID exchange and does not fix a ceiling worth quoting here, so this is
+    /// simply a size past which a configuration is more likely to be a typo
+    /// than an intention.
+    /// </remarks>
+    public const int AbsoluteMaxFrameBytes = 1024;
 
     /// <summary>Header bytes an IP-bearing frame spends before the payload.</summary>
     /// <remarks>Two addresses, control, PID. Each digipeater adds another 7.</remarks>
@@ -47,16 +69,27 @@ public static class Ax25Ip
     /// <remarks>
     /// Chosen to sit under everything observed rather than to maximise
     /// throughput. LinBPQ fragments its own output at an IP total length of
-    /// 252 and accepts up to 312 bytes of payload from us; the kernel's AX.25
-    /// devices default to 256. 236 clears all of them with room for a couple
-    /// of digipeaters in the path, and at 1200 baud a full frame is already
-    /// about 1.7 seconds on air, so the last 20 bytes are not the problem.
+    /// 252 and accepts up to 312 bytes of payload from us. The kernel's AX.25
+    /// devices are documented as defaulting to 256, which has been read and
+    /// not tested here. 236 clears all of that with room for a couple of
+    /// digipeaters in the path, and at 1200 baud a full frame is already about
+    /// 1.7 seconds on air, so the last 20 bytes are not the problem.
     /// </remarks>
     public const int DefaultMtu = 236;
 
-    /// <summary>The largest IP packet that fits, given a digipeater path of this length.</summary>
+    /// <summary>
+    /// The largest IP packet that fits inside <see cref="MaxFrameBytes"/>,
+    /// given a digipeater path of this length.
+    /// </summary>
     public static int MaxMtu(int digipeaters)
         => MaxFrameBytes - HeaderBytes - (digipeaters * Ax25Address.EncodedLength);
+
+    /// <summary>
+    /// The largest IP packet this code will build at all, given a digipeater
+    /// path of this length.
+    /// </summary>
+    public static int AbsoluteMaxMtu(int digipeaters)
+        => AbsoluteMaxFrameBytes - HeaderBytes - (digipeaters * Ax25Address.EncodedLength);
 
     /// <summary>Wrap an IP packet in a UI frame addressed to a station.</summary>
     public static Ax25Frame Datagram(

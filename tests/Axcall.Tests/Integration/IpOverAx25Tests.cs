@@ -43,19 +43,35 @@ public sealed class IpOverAx25Tests
     /// <summary>Off-net, so a packet from it has to be routed rather than consumed.</summary>
     private static readonly IPAddress Elsewhere = IPAddress.Parse("44.131.99.9");
 
-    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(120);
+
+    /// <summary>The channel the harness simulates.</summary>
+    private const double ChannelBitsPerSecond = 1200;
 
     /// <summary>
-    /// How long to wait before asking again.
+    /// How long to leave between asking again, for a frame of this size.
     /// </summary>
     /// <remarks>
-    /// Everything here travels in UI frames, which are unacknowledged, and the
-    /// simulated channel has 10 dB of loss on it by design. A single
-    /// transmission is therefore not a test of anything: losing one is normal
-    /// behaviour for the protocol, not a failure of the thing under test. So
-    /// ask again, the way ping and every ARP resolver do.
+    /// <para>
+    /// Everything here travels in UI frames, which are unacknowledged, so
+    /// asking once is not a test of anything: losing a frame is the protocol
+    /// behaving normally. But asking again on a fixed short timer is worse
+    /// than not asking at all, and the CI runner proved it. A 316-byte frame
+    /// is two seconds of air time at 1200 baud, and the simulator does not run
+    /// faster than real time under load. Retrying every ten seconds queued
+    /// transmissions behind each other until the node was keying almost
+    /// continuously, and a half-duplex node that is transmitting is deaf: the
+    /// peer answered, and nothing was listening. The channel log showed both
+    /// fragments leaving the peer and neither arriving.
+    /// </para>
+    /// <para>
+    /// So the interval is the frame's own air time with a large factor on it,
+    /// which is what makes a retry a second chance rather than a denial of
+    /// service against ourselves.
+    /// </para>
     /// </remarks>
-    private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(10);
+    private static TimeSpan RetryIntervalFor(int frameBytes)
+        => TimeSpan.FromSeconds(Math.Max(20, frameBytes * 8 / ChannelBitsPerSecond * 8));
 
     private readonly InteropFixture fixture;
     private readonly ITestOutputHelper output;
@@ -69,7 +85,7 @@ public sealed class IpOverAx25Tests
     [Fact]
     public async Task Linbpq_Answers_An_Ax25_Arp_Request()
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
         await using var kiss = await KissTcpClient.ConnectAsync(InteropFixture.NetsimHost, fixture.NetsimKissPort, cts.Token);
 
         var request = new AxArpMessage(
@@ -114,7 +130,7 @@ public sealed class IpOverAx25Tests
     [InlineData(AxArpMessage.ProtocolTypeBpq)]
     public async Task Linbpq_Ignores_The_Arp_Protocol_Type_And_Reflects_It(ushort protocolType)
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
         await using var kiss = await KissTcpClient.ConnectAsync(InteropFixture.NetsimHost, fixture.NetsimKissPort, cts.Token);
 
         var request = new AxArpMessage(
@@ -146,7 +162,7 @@ public sealed class IpOverAx25Tests
     [Fact]
     public async Task Linbpq_Answers_An_Icmp_Echo_Carried_In_A_Ui_Frame()
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
         await using var kiss = await KissTcpClient.ConnectAsync(InteropFixture.NetsimHost, fixture.NetsimKissPort, cts.Token);
 
         var request = Icmp.EchoRequest(OurAddress, LinbpqAddress, identifier: 0x4158, sequence: 1, "axcall interop"u8);
@@ -185,7 +201,7 @@ public sealed class IpOverAx25Tests
     [Fact]
     public async Task Linbpq_Splits_A_Long_Packet_With_Ip_Fragmentation_Not_Segmentation()
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
         await using var kiss = await KissTcpClient.ConnectAsync(InteropFixture.NetsimHost, fixture.NetsimKissPort, cts.Token);
 
         // From off-net to us, so LinBPQ routes it back over the air rather than
@@ -238,19 +254,23 @@ public sealed class IpOverAx25Tests
     [Fact]
     public async Task Linbpq_Discards_A_Frame_Over_The_Size_It_Will_Accept()
     {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(180));
         await using var kiss = await KissTcpClient.ConnectAsync(InteropFixture.NetsimHost, fixture.NetsimKissPort, cts.Token);
 
         var tooBig = Icmp.EchoRequest(OurAddress, LinbpqAddress, 0x415A, 3, new byte[400]);
         var oversize = Ax25Ip.Datagram(LinbpqCall, OurCall, tooBig);
         oversize.ToBytes().Length.Should().BeGreaterThan(Ax25Ip.MaxFrameBytes);
 
+        // Sent once, not retried. It is the longest thing any of these tests
+        // puts on the channel, it is expected to be ignored, and repeating it
+        // only takes air time away from the half of the test that has to work.
         var ignored = await ExchangeAsync(
             kiss,
             oversize,
             frame => Ax25Ip.TryGetPayload(frame, Ax25Pid.Ip, out _),
             cts.Token,
-            timeout: TimeSpan.FromSeconds(25));
+            timeout: TimeSpan.FromSeconds(25),
+            retry: false);
 
         ignored.Should().BeNull("a frame over the size LinBPQ accepts is discarded without a word");
 
@@ -288,9 +308,10 @@ public sealed class IpOverAx25Tests
         Ax25Frame outbound,
         Func<Ax25Frame, bool> matches,
         CancellationToken ct,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        bool retry = true)
     {
-        var found = await CollectAsync(kiss, outbound, matches, count: 1, ct, timeout).ConfigureAwait(false);
+        var found = await CollectAsync(kiss, outbound, matches, count: 1, ct, timeout, retry).ConfigureAwait(false);
         return found.Count == 0 ? null : found[0];
     }
 
@@ -301,7 +322,8 @@ public sealed class IpOverAx25Tests
         Func<Ax25Frame, bool> matches,
         int count,
         CancellationToken ct,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        bool retry = true)
     {
         var collected = new List<Ax25Frame>();
 
@@ -343,12 +365,17 @@ public sealed class IpOverAx25Tests
             + $"pid={(outbound.Pid is { } p ? $"0x{p:X2}" : "none")} {outbound.Info.Length} bytes "
             + $"({bytes.Length} on air)";
 
+        var interval = RetryIntervalFor(bytes.Length);
+
         while (!reader.IsCompleted && !window.IsCancellationRequested)
         {
             output.WriteLine(label);
             await kiss.SendFrameAsync(bytes, ct).ConfigureAwait(false);
 
-            var elapsed = await Task.WhenAny(reader, Task.Delay(RetryInterval, window.Token)).ConfigureAwait(false);
+            if (!retry)
+                break;
+
+            var elapsed = await Task.WhenAny(reader, Task.Delay(interval, window.Token)).ConfigureAwait(false);
             if (elapsed == reader)
                 break;
         }
