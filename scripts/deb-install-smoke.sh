@@ -14,7 +14,9 @@
 #      which InvariantGlobalization is there to avoid) installs perfectly and
 #      then fails on first exec, and only running it catches that.
 #   4. it does the AX.25-specific thing it is for: resolves a ports file, and
-#      reports a usage error with the documented exit code.
+#      reports a usage error with the documented exit code - and gets far
+#      enough into opening a serial port to prove the native serial library is
+#      present, which an exit code alone does not show.
 #   5. it takes over /usr/bin/axcall from ax25-apps, which owns that path, via
 #      the declared Conflicts + Replaces.
 #   6. `apt purge` removes it cleanly.
@@ -64,6 +66,8 @@ apt-get install -y -qq "./$DEB_BASE" || fail "apt install of the .deb"
 echo "--- 2. package state and payload"
 dpkg -s axcall | grep -q "Status: install ok installed" || fail "dpkg state"
 [ -x /usr/bin/axcall ] || fail "no /usr/bin/axcall"
+[ -L /usr/bin/axcall ] || fail "/usr/bin/axcall is not a symlink into /usr/lib/axcall"
+[ -x /usr/lib/axcall/axcall ] || fail "no /usr/lib/axcall/axcall"
 [ -f /usr/share/man/man1/axcall.1.gz ] || fail "no man page"
 gzip -t /usr/share/man/man1/axcall.1.gz || fail "man page is not valid gzip"
 [ -f /usr/share/doc/axcall/copyright ] || fail "no copyright"
@@ -85,6 +89,24 @@ printf "radio  M0LTE-7  /dev/ttyUSB0:57600  256  4  smoke\n" > /etc/axcall/ports
 # That is the whole ports-file path exercised against the real installed binary.
 axcall radio gb7rdg >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 3 ] || fail "named port did not resolve: expected exit 3, got $rc"
+
+# And it has to fail for the RIGHT reason. A NativeAOT build dlopens
+# libSystem.IO.Ports.Native from the directory holding the binary, so a package
+# that does not ship it next to the binary cannot open any serial port at all.
+# It still exits 3, which is why the assertion above passed all through v0.5.0
+# and v0.6.0 while every serial port was broken. Read the message, not the code.
+set +e
+serial_out=$(axcall radio gb7rdg 2>&1)
+set -e
+case "$serial_out" in
+  *"Unable to load shared library"*)
+    echo "$serial_out"
+    fail "serial support is missing its native library" ;;
+esac
+case "$serial_out" in
+  *"/dev/ttyUSB0"*) ;;
+  *) echo "$serial_out"; fail "expected a complaint about the missing device" ;;
+esac
 rm -rf /etc/axcall
 
 echo "--- 5. takes over /usr/bin/axcall from ax25-apps"
