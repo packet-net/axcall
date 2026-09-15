@@ -4,6 +4,7 @@ Architecture: @ARCH@
 Maintainer: Tom Fanning <tom@m0lte.uk>
 Installed-Size: @INSTALLED_SIZE@
 Depends: @DEPENDS@
+Suggests: axsocks
 Conflicts: ax25-apps
 Replaces: ax25-apps
 Section: hamradio

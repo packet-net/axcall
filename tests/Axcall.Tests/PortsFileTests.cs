@@ -9,11 +9,13 @@ namespace Axcall.Tests;
 /// kernel stack.
 /// </summary>
 /// <remarks>
-/// Every test here points <c>AXCALL_PORTS</c> at a temporary file, and that
-/// variable is process-wide, so all of it lives in this one class: xunit runs a
-/// class's tests one at a time. No test outside this class uses a bare port
-/// name, so none of them read the file at all.
+/// Every test here points <c>AXCALL_PORTS</c> at a temporary file. That
+/// variable is process-wide, so this class shares
+/// <see cref="ConfigFilesCollection"/> with everything else that pins it;
+/// without that, two classes racing on one environment variable fail in ways
+/// that look like parser bugs.
 /// </remarks>
+[Collection(ConfigFilesCollection.Name)]
 public sealed class PortsFileTests
 {
     /// <summary>

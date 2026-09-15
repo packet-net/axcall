@@ -3,8 +3,8 @@
   <Import Project="..\Tool.props" />
 
   <PropertyGroup>
-    <AssemblyName>axcall</AssemblyName>
-    <RootNamespace>Axcall</RootNamespace>
+    <AssemblyName>axsocks</AssemblyName>
+    <RootNamespace>Axsocks</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

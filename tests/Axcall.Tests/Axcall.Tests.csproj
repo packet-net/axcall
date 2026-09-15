@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Axcall\Axcall.csproj" />
+    <ProjectReference Include="..\..\src\Axsocks\Axsocks.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,26 @@
+# axcall hosts file.
+#
+# Names for stations, so software that only understands hostnames can reach a
+# callsign. This is /etc/hosts for the packet network, and it exists for the
+# same reason: the thing on the other side has an address that people do not
+# want to type, and the software in between has no idea what it means.
+#
+# Copy to /etc/axcall/hosts for everyone, or ~/.config/axcall/hosts for
+# yourself; the per-user file replaces same-named entries in the system one.
+#
+# Used by axsocks(1) to turn the name a SOCKS client asks for into a station to
+# call.
+#
+# The first two columns are mandatory. The third names a port from the ports
+# file, and is there to say which radio a station is on; "-" or nothing means
+# whichever port the proxy was started on.
+#
+# A name that is not listed here but is itself a valid callsign is used as one,
+# so "gb7rdg-1" needs no entry. List a name when you want a short or memorable
+# form, or when the name and the callsign genuinely differ.
+
+# name       callsign     port
+#gb7rdg      GB7RDG       radio
+#gb7cip      GB7CIP-1     radio
+#bbs         M0LTE-1      radio
+#lab         M0LTE-2      -

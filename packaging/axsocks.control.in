@@ -1,0 +1,27 @@
+Package: axsocks
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Tom Fanning <tom@m0lte.uk>
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Section: hamradio
+Priority: optional
+Homepage: https://github.com/packet-net/axcall
+Description: SOCKS5 proxy onto an AX.25 port
+ Puts a SOCKS5 proxy in front of one AX.25 port. Every connection it accepts
+ becomes a connected-mode AX.25 session to a callsign, and the bytes pass
+ through untouched, so curl, ssh, browsers and any HTTP library reach a packet
+ station over an ordinary socket without knowing what AX.25 is.
+ .
+ The mapping is exact rather than approximate: a connected-mode AX.25 session
+ is reliable, ordered and flow-controlled, and so is a TCP connection, so the
+ proxy opens a link, copies bytes, and closes the link when they run out.
+ Streams only; there is no UDP and no ping.
+ .
+ Carries its own AX.25 v2.2 data link and speaks KISS to a TNC over a serial
+ port or over TCP, so it needs no kernel support, no kissattach and no
+ privilege. Reads the same /etc/axcall/ports as axcall, plus an
+ /etc/axcall/hosts giving names to stations.
+ .
+ Self-contained: bundles its own .NET runtime, so no system runtime is
+ required.
