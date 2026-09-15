@@ -575,7 +575,7 @@ public sealed class SessionRelay : IAsyncDisposable
     /// that overwrite the current line. Lone LF and text without a terminator
     /// pass through unchanged (no spurious newline is added).
     /// </summary>
-    internal static string RenderReceivedText(ReadOnlySpan<byte> info)
+    public static string RenderReceivedText(ReadOnlySpan<byte> info)
         => Encoding.UTF8.GetString(info)
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Replace('\r', '\n');
@@ -596,7 +596,7 @@ public sealed class SessionRelay : IAsyncDisposable
     /// than the negotiated k (the SREJ half-modulus hold, or the modulus itself),
     /// the enforced figure is shown alongside.
     /// </summary>
-    internal static string DescribeLink(Ax25SessionContext ctx)
+    public static string DescribeLink(Ax25SessionContext ctx)
     {
         var modulus = ctx.IsExtended ? "mod-128" : "mod-8";
         var window = ctx.EffectiveWindow < ctx.K

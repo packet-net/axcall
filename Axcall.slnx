@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Axcall/Axcall.csproj" />
+    <Project Path="src/Axcall.Core/Axcall.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Axcall.Tests/Axcall.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The engine side of axcall: session relay, transport resolution, the
+       ports file and the KISS channel-access parameters. Everything here is
+       shared by the command line tools in this repo (axcall, axsocks), which
+       are thin front ends over it.
+
+       Deliberately not published to NuGet. It is an implementation detail of
+       this repo, free to change shape between releases, and keeping it here
+       is what lets a new tool reuse the engine without a package release. -->
+  <PropertyGroup>
+    <AssemblyName>Axcall.Core</AssemblyName>
+    <RootNamespace>Axcall</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- The tools that reference this library publish with NativeAOT, which
+         analyses the whole graph. Opting in here means trim and AOT problems
+         surface when the library builds rather than at publish time. -->
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Packet.Core" />
+    <PackageReference Include="Packet.Ax25" />
+    <PackageReference Include="Packet.Ax25.Transport.Abstractions" />
+    <PackageReference Include="Packet.Kiss" />
+    <PackageReference Include="Packet.Kiss.Serial" />
+  </ItemGroup>
+
+</Project>

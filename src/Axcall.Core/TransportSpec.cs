@@ -18,7 +18,7 @@ namespace Axcall;
 /// A bare name is neither, and is resolved through <see cref="PortsFile"/>
 /// before it reaches here.
 /// </remarks>
-internal sealed record TransportSpec
+public sealed record TransportSpec
 {
     private TransportSpec() { }
 
@@ -46,7 +46,7 @@ internal sealed record TransportSpec
     /// axcall should report "failed to open modem", not "unknown port", when
     /// /dev/ttyUSB0 is unplugged.
     /// </summary>
-    internal static bool LooksLikePath(string spec)
+    public static bool LooksLikePath(string spec)
         => spec.StartsWith('/')
            || spec.StartsWith("./", StringComparison.Ordinal)
            || spec.StartsWith("../", StringComparison.Ordinal);
@@ -55,7 +55,7 @@ internal sealed record TransportSpec
     /// True if the spec is a name to look up rather than a transport: anything
     /// that is neither a path nor carries a colon.
     /// </summary>
-    internal static bool LooksLikeName(string spec)
+    public static bool LooksLikeName(string spec)
         => !LooksLikePath(spec) && !spec.Contains(':', StringComparison.Ordinal);
 
     /// <summary>
@@ -63,7 +63,7 @@ internal sealed record TransportSpec
     /// <paramref name="error"/> that the caller prefixes with its own context
     /// ("--tcp: ...", "/etc/axcall/ports:3: ...").
     /// </summary>
-    internal static bool TryParse(string spec, out TransportSpec? result, out string? error)
+    public static bool TryParse(string spec, out TransportSpec? result, out string? error)
     {
         result = null;
         error = null;
@@ -85,7 +85,7 @@ internal sealed record TransportSpec
     }
 
     /// <summary>Parse "/dev/ttyUSB0" or "/dev/ttyUSB0:57600".</summary>
-    internal static bool TryParseDevice(string spec, out TransportSpec? result, out string? error)
+    public static bool TryParseDevice(string spec, out TransportSpec? result, out string? error)
     {
         result = null;
         error = null;
@@ -123,7 +123,7 @@ internal sealed record TransportSpec
     }
 
     /// <summary>Parse "host:port", including a bracketed IPv6 literal.</summary>
-    internal static bool TryParseEndpoint(string spec, out TransportSpec? result, out string? error)
+    public static bool TryParseEndpoint(string spec, out TransportSpec? result, out string? error)
     {
         result = null;
         error = null;
