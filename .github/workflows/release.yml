@@ -44,10 +44,12 @@ jobs:
             os: ubuntu-24.04
             deb: amd64
             smoke: true
+            exercise: true
           - rid: linux-arm64
             os: ubuntu-24.04-arm
             deb: arm64
             smoke: true
+            exercise: true
           # No armhf runner exists, so this one is cross-published. It is also
           # the only target that is not NativeAOT, for the same reason.
           - rid: linux-arm
@@ -62,6 +64,7 @@ jobs:
             os: macos-14
           - rid: osx-arm64
             os: macos-14
+            exercise: true
           - rid: win-x64
             os: windows-latest
     steps:
@@ -91,18 +94,94 @@ jobs:
             -p:InformationalVersion="${{ steps.tag.outputs.version }}" \
             -o "publish/${{ matrix.rid }}"
 
-      - name: Stage the loose binary
+      - name: Stage the download
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           TAG="${{ steps.tag.outputs.tag }}"
-          if [ "${{ matrix.rid }}" = "win-x64" ]; then
-            cp "publish/${{ matrix.rid }}/axcall.exe" "dist/axcall-$TAG-${{ matrix.rid }}.exe"
-          else
-            cp "publish/${{ matrix.rid }}/axcall" "dist/axcall-$TAG-${{ matrix.rid }}"
+          RID="${{ matrix.rid }}"
+          PUB="publish/$RID"
+
+          # Windows stays a bare .exe. System.IO.Ports calls Win32 directly
+          # there, so the executable really is the whole program and there is
+          # nothing for an archive to hold that a single file cannot.
+          if [ "$RID" = "win-x64" ]; then
+            cp "$PUB/axcall.exe" "dist/axcall-$TAG-$RID.exe"
+            ls -l dist
+            exit 0
           fi
+
+          # Everywhere else the download is a tarball, because a NativeAOT
+          # build is not always one file. System.IO.Ports is out-of-band from
+          # the shared framework and ships its native helper only as a shared
+          # library, so AOT cannot link it in and the binary dlopens it from
+          # its own directory at run time. Publishing the binary by itself is
+          # what left every serial port unopenable from v0.5.0 to v0.6.0.
+          #
+          # armhf has no companion library either, since it is the one target
+          # that is not AOT and self-extracts what it needs. It is packaged the
+          # same way regardless, so that every Linux and macOS download has one
+          # shape and nobody has to wonder why theirs is different.
+          dir="axcall-$TAG-$RID"
+          rm -rf stage && mkdir -p "stage/$dir"
+          cp "$PUB/axcall" "stage/$dir/axcall"
+          chmod 0755 "stage/$dir/axcall"
+
+          shopt -s nullglob
+          for lib in "$PUB"/*.so "$PUB"/*.dylib; do
+            echo "bundling $(basename "$lib")"
+            cp "$lib" "stage/$dir/"
+            chmod 0644 "stage/$dir/$(basename "$lib")"
+          done
+          shopt -u nullglob
+
+          {
+            printf 'axcall %s (%s)\n\n' "$TAG" "$RID"
+            printf 'Keep these files together. axcall loads its serial-port support from a\n'
+            printf 'library in this directory, and on its own it cannot open a serial port.\n\n'
+            printf 'Run it from here, or copy the whole directory somewhere permanent and put\n'
+            printf 'that directory on your PATH.\n\n'
+            printf 'On Debian and Ubuntu, install the .deb instead. It puts axcall on your PATH\n'
+            printf 'properly and carries the man page.\n\n'
+            printf 'https://github.com/packet-net/axcall\n'
+          } > "stage/$dir/README"
+
+          tar -C stage -czf "dist/$dir.tar.gz" "$dir"
+          echo "--- tarball contents ---"
+          tar -tzf "dist/$dir.tar.gz"
           ls -l dist
+
+      # The bug this packaging exists to prevent is invisible until something
+      # actually asks for a serial port: the binary starts, prints its version
+      # and passes every other check with its serial support unloadable. So
+      # unpack the real download and make it try. Only where the runner can
+      # execute what it built, which rules out armhf and the x64 macOS slice
+      # that is cross-built on Apple Silicon.
+      - name: Check the download can reach a serial port
+        if: matrix.exercise
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          dir="axcall-$TAG-${{ matrix.rid }}"
+          rm -rf check && mkdir check
+          tar -C check -xzf "dist/$dir.tar.gz"
+
+          set +e
+          out=$("check/$dir/axcall" --serial /dev/ttyUSB0:9600 -s M0LTE-9 GB7RDG 2>&1)
+          set -e
+          echo "$out"
+
+          case "$out" in
+            *"Unable to load shared library"*)
+              echo "::error::the download cannot load its serial support"; exit 1 ;;
+          esac
+          case "$out" in
+            *"/dev/ttyUSB0"*) ;;
+            *) echo "::error::expected a complaint about the missing device"; exit 1 ;;
+          esac
+          echo "serial support loads; it got as far as the device"
 
       - name: Build the .deb
         if: matrix.deb != ''
@@ -147,8 +226,8 @@ jobs:
           mkdir -p dist
           find staged -type f -exec cp {} dist/ \;
           ls -l dist
-          # Six loose binaries plus three .debs. Fail loudly rather than
-          # publishing a release that is quietly missing a platform.
+          # Five tarballs, one Windows .exe and three .debs. Fail loudly
+          # rather than publishing a release quietly missing a platform.
           count=$(find dist -type f | wc -l)
           [ "$count" -eq 9 ] || { echo "expected 9 artifacts, got $count"; exit 1; }
 
