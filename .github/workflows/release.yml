@@ -160,8 +160,8 @@ jobs:
             printf 'library in this directory, and alone they cannot open a serial port.\n\n'
             printf 'Run them from here, or copy the whole directory somewhere permanent and\n'
             printf 'put that directory on your PATH.\n\n'
-            printf 'On Debian and Ubuntu, install the .deb instead. It puts axcall on your PATH\n'
-            printf 'properly and carries the man page.\n\n'
+            printf 'On Debian and Ubuntu, install the packages instead: axcall and axsocks are\n'
+            printf 'one .deb each, so you get what you asked for, on your PATH, with man pages.\n\n'
             printf 'https://github.com/packet-net/axcall\n'
           } > "stage/$dir/README"
 
@@ -201,18 +201,22 @@ jobs:
           esac
           echo "serial support loads; it got as far as the device"
 
-      - name: Build the .deb
+      - name: Build the .debs
         if: matrix.deb != ''
         run: scripts/build-deb.sh "${{ matrix.rid }}" "${{ steps.tag.outputs.version }}"
 
-      # Proves the package installs, runs and purges on a pristine Debian and
-      # Ubuntu. Only where the runner can execute the binary: armhf has no
-      # runner of its own, so its package ships unexercised.
-      - name: Smoke-test the .deb
+      # Proves the packages install, run and purge on a pristine Debian and
+      # Ubuntu, together and therefore also proving they do not collide. Only
+      # where the runner can execute the binary: armhf has no runner of its
+      # own, so its packages ship unexercised.
+      - name: Smoke-test the .debs
         if: matrix.smoke
-        run: scripts/deb-install-smoke.sh artifacts/axcall_*_${{ matrix.deb }}.deb
+        run: |
+          scripts/deb-install-smoke.sh \
+            artifacts/axcall_*_${{ matrix.deb }}.deb \
+            artifacts/axsocks_*_${{ matrix.deb }}.deb
 
-      - name: Collect the .deb
+      - name: Collect the .debs
         if: matrix.deb != ''
         shell: bash
         run: cp artifacts/*.deb dist/
@@ -244,10 +248,11 @@ jobs:
           mkdir -p dist
           find staged -type f -exec cp {} dist/ \;
           ls -l dist
-          # Five tarballs, one Windows .zip and three .debs. Fail loudly
-          # rather than publishing a release quietly missing a platform.
+          # Five tarballs, one Windows .zip, and two .debs for each of three
+          # architectures: one package per program. Fail loudly rather than
+          # publishing a release quietly missing a platform or a tool.
           count=$(find dist -type f | wc -l)
-          [ "$count" -eq 9 ] || { echo "expected 9 artifacts, got $count"; exit 1; }
+          [ "$count" -eq 12 ] || { echo "expected 12 artifacts, got $count"; exit 1; }
 
       - name: Create release
         if: github.event.inputs.dry_run != 'true'

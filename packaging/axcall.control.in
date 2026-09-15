@@ -4,6 +4,7 @@ Architecture: @ARCH@
 Maintainer: Tom Fanning <tom@m0lte.uk>
 Installed-Size: @INSTALLED_SIZE@
 Depends: @DEPENDS@
+Suggests: axsocks
 Conflicts: ax25-apps
 Replaces: ax25-apps
 Section: hamradio
@@ -19,11 +20,6 @@ Description: connected-mode AX.25 terminal over KISS
  link and speaks KISS to a TNC over a serial port or over TCP, so it needs no
  kernel support, no kissattach, no axparms and no privilege. The command line
  is deliberately the old one, so existing scripts mostly carry over.
- .
- Also ships axsocks, a SOCKS5 proxy onto the same port. Every connection it
- accepts becomes an AX.25 session to a callsign, so curl, ssh and any HTTP
- library can reach a packet station over an ordinary socket without knowing
- what AX.25 is.
  .
  Self-contained: bundles its own .NET runtime, so no system runtime is
  required. Replaces ax25-apps, which owns the same /usr/bin/axcall; the rest
