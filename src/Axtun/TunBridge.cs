@@ -155,17 +155,14 @@ public sealed class TunBridge
 
         var destination = ip.DestinationValue;
         Callsign target;
-        IReadOnlyList<Callsign> path;
 
         if (config.Lookup(destination) is { } route)
         {
             target = route.Callsign;
-            path = route.Digipeaters;
         }
         else if (neighbours.TryGet(destination, out var neighbour) && neighbour is not null)
         {
             target = neighbour.Callsign;
-            path = neighbour.Digipeaters;
         }
         else
         {
@@ -174,19 +171,18 @@ public sealed class TunBridge
             return;
         }
 
-        int room = Ax25Ip.MaxMtu(path.Count);
+        int room = Ax25Ip.MaxMtu();
         if (packet.Length > room)
         {
             Filtered++;
             ReportOnce(
-                $"oversize:{path.Count}",
+                "oversize",
                 $"dropped {ip.Describe()}: {packet.Length} bytes will not fit, the most a frame to "
-                    + $"{target}{(path.Count == 0 ? "" : " via " + string.Join(",", path))} can carry is {room}. "
-                    + $"Lower the MTU on {tun.Name}.");
+                    + $"{target} can carry is {room}. Lower the MTU on {tun.Name}.");
             return;
         }
 
-        var frame = Ax25Ip.Datagram(target, myCall, packet.Span, path);
+        var frame = Ax25Ip.Datagram(target, myCall, packet.Span);
         await modem.SendAsync(frame.ToBytes(), ct).ConfigureAwait(false);
         Transmitted++;
     }
@@ -234,32 +230,42 @@ public sealed class TunBridge
             if (!Ax25Frame.TryParse(inbound.Ax25.Span, out var frame) || frame is null)
                 continue;
 
-            // The path back is the digipeaters this frame came through, in
-            // reverse: it arrived through them, so a reply has to go back out
-            // through them the other way round.
-            var pathBack = frame.Digipeaters.Count == 0
-                ? (IReadOnlyList<Callsign>)[]
-                : [.. frame.Digipeaters.Select(d => d.Callsign).Reverse()];
+            // A frame that came through a repeater came from behind it, and
+            // nothing here digipeats, so it cannot be answered. It is still
+            // delivered upward, because receiving works fine; what is refused
+            // is recording a station we would then fail to reach.
+            var direct = frame.Digipeaters.Count == 0;
 
             if (Ax25Ip.TryGetPayload(frame, Ax25Pid.Ip, out var packet))
             {
-                Deliver(packet.Span, frame.Source.Callsign, pathBack);
+                Deliver(packet.Span, frame.Source.Callsign, direct);
             }
-            else if (Ax25Ip.TryGetPayload(frame, Ax25Pid.Arp, out var arp))
+            else if (direct && Ax25Ip.TryGetPayload(frame, Ax25Pid.Arp, out var arp))
             {
-                await HandleArpAsync(arp, frame.Source.Callsign, pathBack, ct).ConfigureAwait(false);
+                await HandleArpAsync(arp, frame.Source.Callsign, ct).ConfigureAwait(false);
             }
         }
     }
 
-    private void Deliver(ReadOnlySpan<byte> packet, Callsign from, IReadOnlyList<Callsign> pathBack)
+    private void Deliver(ReadOnlySpan<byte> packet, Callsign from, bool direct)
     {
         if (!IpPacket.TryRead(packet, out var ip))
             return;
 
-        // Whoever sent this is reachable, and now we know how. A fragment
-        // counts: the source address is in every fragment's header.
-        neighbours.Learn(ip.SourceValue, from, pathBack);
+        if (direct)
+        {
+            // Whoever sent this is reachable, and now we know who. A fragment
+            // counts: the source address is in every fragment's header.
+            neighbours.Learn(ip.SourceValue, from);
+        }
+        else
+        {
+            ReportOnce(
+                $"repeated:{from}",
+                $"heard {ip.Source} from {from} through a repeater. The packet is delivered, but "
+                    + "the station is not recorded, because nothing here digipeats and a reply "
+                    + "sent direct would not reach it.");
+        }
 
         try
         {
@@ -272,11 +278,7 @@ public sealed class TunBridge
         }
     }
 
-    private async Task HandleArpAsync(
-        ReadOnlyMemory<byte> message,
-        Callsign from,
-        IReadOnlyList<Callsign> pathBack,
-        CancellationToken ct)
+    private async Task HandleArpAsync(ReadOnlyMemory<byte> message, Callsign from, CancellationToken ct)
     {
         if (!AxArpMessage.TryParse(message.Span, out var arp) || arp is null)
             return;
@@ -284,7 +286,7 @@ public sealed class TunBridge
         // Take the sender either way. A reply is the answer to something we
         // asked; a request tells us the same thing for free.
         if (arp.SenderCallsign.Base.Length > 0)
-            neighbours.Learn(IpPrefix.ToUInt32(arp.SenderAddress), arp.SenderCallsign, pathBack);
+            neighbours.Learn(IpPrefix.ToUInt32(arp.SenderAddress), arp.SenderCallsign);
 
         if (arp.Operation != AxArpOperation.Request)
             return;
@@ -303,7 +305,7 @@ public sealed class TunBridge
             // reflecting it means neither ever sees a value it did not choose.
             arp.ProtocolType);
 
-        var frame = Ax25Ip.Arp(from, myCall, reply.ToBytes(), pathBack);
+        var frame = Ax25Ip.Arp(from, myCall, reply.ToBytes());
         await modem.SendAsync(frame.ToBytes(), ct).ConfigureAwait(false);
         Verbose($"told {from} that {IpPrefix.ToAddress(localAddress)} is {myCall}");
     }

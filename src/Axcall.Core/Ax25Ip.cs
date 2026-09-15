@@ -23,6 +23,13 @@ namespace Axcall;
 /// does not refuse either). A receiver that insisted on UI would be
 /// unreachable from a peer whose route says vc, for no gain.
 /// </para>
+/// <para>
+/// Everything goes direct. Layer 2 digipeating is not done anywhere in this
+/// suite, for connected mode or for IP, so a station behind a repeater is not
+/// reachable and is not pretended to be: one heard through a repeater is
+/// deliberately not learned, because replying to it direct would go into the
+/// ground.
+/// </para>
 /// </remarks>
 public static class Ax25Ip
 {
@@ -60,7 +67,7 @@ public static class Ax25Ip
     public const int AbsoluteMaxFrameBytes = 1024;
 
     /// <summary>Header bytes an IP-bearing frame spends before the payload.</summary>
-    /// <remarks>Two addresses, control, PID. Each digipeater adds another 7.</remarks>
+    /// <remarks>Two addresses, control, PID. There are never any repeaters.</remarks>
     public const int HeaderBytes = (2 * Ax25Address.EncodedLength) + 2;
 
     /// <summary>
@@ -72,44 +79,32 @@ public static class Ax25Ip
     /// 252 and accepts up to 312 bytes of payload from us. The kernel's AX.25
     /// devices are documented as defaulting to 256, which has been read and
     /// not tested here. 236 clears all of that with room for a couple of
-    /// digipeaters in the path, and at 1200 baud a full frame is already about
-    /// 1.7 seconds on air, so the last 20 bytes are not the problem.
+    /// room to spare, and at 1200 baud a full frame is already about 1.7
+    /// seconds on air, so the last 20 bytes are not the problem.
     /// </remarks>
     public const int DefaultMtu = 236;
 
-    /// <summary>
-    /// The largest IP packet that fits inside <see cref="MaxFrameBytes"/>,
-    /// given a digipeater path of this length.
-    /// </summary>
-    public static int MaxMtu(int digipeaters)
-        => MaxFrameBytes - HeaderBytes - (digipeaters * Ax25Address.EncodedLength);
+    /// <summary>The largest IP packet that fits inside <see cref="MaxFrameBytes"/>.</summary>
+    public static int MaxMtu() => MaxFrameBytes - HeaderBytes;
 
-    /// <summary>
-    /// The largest IP packet this code will build at all, given a digipeater
-    /// path of this length.
-    /// </summary>
-    public static int AbsoluteMaxMtu(int digipeaters)
-        => AbsoluteMaxFrameBytes - HeaderBytes - (digipeaters * Ax25Address.EncodedLength);
+    /// <summary>The largest IP packet this code will build at all.</summary>
+    public static int AbsoluteMaxMtu() => AbsoluteMaxFrameBytes - HeaderBytes;
 
     /// <summary>Wrap an IP packet in a UI frame addressed to a station.</summary>
-    public static Ax25Frame Datagram(
-        Callsign destination,
-        Callsign source,
-        ReadOnlySpan<byte> packet,
-        IReadOnlyList<Callsign>? digipeaters = null)
-        => Ax25Frame.Ui(destination, source, packet, Ax25Pid.Ip, digipeaters: digipeaters);
+    /// <remarks>
+    /// Direct, never through a repeater. Layer 2 digipeating is not done
+    /// anywhere in this suite; see the remarks on <see cref="Ax25Ip"/>.
+    /// </remarks>
+    public static Ax25Frame Datagram(Callsign destination, Callsign source, ReadOnlySpan<byte> packet)
+        => Ax25Frame.Ui(destination, source, packet, Ax25Pid.Ip);
 
     /// <summary>Wrap an ARP message in a UI frame.</summary>
     /// <remarks>
     /// A request goes to QST, the broadcast address every AX.25 implementation
     /// answers on; a reply goes back to whoever asked.
     /// </remarks>
-    public static Ax25Frame Arp(
-        Callsign destination,
-        Callsign source,
-        ReadOnlySpan<byte> message,
-        IReadOnlyList<Callsign>? digipeaters = null)
-        => Ax25Frame.Ui(destination, source, message, Ax25Pid.Arp, digipeaters: digipeaters);
+    public static Ax25Frame Arp(Callsign destination, Callsign source, ReadOnlySpan<byte> message)
+        => Ax25Frame.Ui(destination, source, message, Ax25Pid.Arp);
 
     /// <summary>
     /// The AX.25 broadcast destination, as used for ARP requests and beacons.

@@ -17,7 +17,8 @@ Description: IP over AX.25 on a TUN device
  ARQ link sets two retransmission timers against the same loss and wrecks TCP's
  round trip estimate. Accepts IP either way on receive, since both are
  configured in the field. Answers AX.25 ARP, so a station that has not been
- told about this one can still find it.
+ told about this one can still find it. Everything goes direct: layer 2
+ digipeating is not done here, so stations behind a repeater are not reachable.
  .
  Filters what goes out, and starts closed. An unfiltered IP interface on a
  shared channel transmits mDNS, SSDP, NetBIOS and DHCP renewals unasked, under

@@ -19,18 +19,18 @@
 # Longest prefix wins, as in any routing table: a host route beats the subnet
 # it sits in, and the subnet beats the default.
 #
-# "via" gives a digipeater path, up to eight calls, comma separated with no
-# spaces. Each one costs seven bytes of every frame and a whole extra
-# transmission, so two is already a long path for IP. Without it, nothing
-# behind a digi is reachable at all.
+# Routes are direct. Layer 2 digipeating is not done anywhere in this suite,
+# for connected mode or for IP, so a route with a "via" on it is refused rather
+# than quietly sent direct, and stations behind a repeater are not reachable.
 #
-# An address heard on the air but not listed here is remembered for an hour,
-# so a station that ARPs for us becomes reachable without being written down.
-# Anything listed here wins over anything heard.
+# An address heard direct but not listed here is remembered for an hour, so a
+# station that ARPs for us becomes reachable without being written down. One
+# heard through a repeater is not remembered, because a reply sent direct would
+# not reach it. Anything listed here wins over anything heard.
 
-# range                callsign     path
+# range                callsign
 #route 44.131.20.2      PN0TST
-#route 44.131.91.0/24   GB7RDG-1    via WIDE1-1
+#route 44.131.91.0/24   GB7RDG-1
 #route default          GB7RDG-1
 
 # ---------------------------------------------------------------------------

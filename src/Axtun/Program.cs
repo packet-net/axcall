@@ -285,8 +285,8 @@ internal static class Program
         int mtu = Ax25Ip.DefaultMtu;
         if (mtuArg is not null)
         {
-            if (!TryParseCount(mtuArg, out mtu) || mtu < MinMtu || mtu > Ax25Ip.AbsoluteMaxMtu(0))
-                return Fail($"invalid --mtu: {mtuArg} (must be {MinMtu}..{Ax25Ip.AbsoluteMaxMtu(0)} bytes)");
+            if (!TryParseCount(mtuArg, out mtu) || mtu < MinMtu || mtu > Ax25Ip.AbsoluteMaxMtu())
+                return Fail($"invalid --mtu: {mtuArg} (must be {MinMtu}..{Ax25Ip.AbsoluteMaxMtu()} bytes)");
 
             // Above the known-good ceiling is allowed, because that ceiling is
             // one observation about one peer rather than a property of AX.25,
@@ -294,10 +294,10 @@ internal static class Program
             // use a link that works. But say so: a station that silently
             // discards an overlong frame, as LinBPQ does, is indistinguishable
             // from a dead one.
-            if (mtu > Ax25Ip.MaxMtu(0))
+            if (mtu > Ax25Ip.MaxMtu())
             {
                 Console.Error.WriteLine(
-                    $"axtun: --mtu {mtu} is above {Ax25Ip.MaxMtu(0)}, the largest packet every peer tested "
+                    $"axtun: --mtu {mtu} is above {Ax25Ip.MaxMtu()}, the largest packet every peer tested "
                     + "so far accepts. LinBPQ discards a longer frame without a word, so if the other end "
                     + "goes quiet, this is the first thing to put back.");
             }
@@ -431,7 +431,7 @@ internal static class Program
                   --addr <addr/len>  Address to put on it, e.g. 44.131.20.1/24. Needs
                                      CAP_NET_ADMIN. Without it, the interface has to be
                                      configured already.
-                  --mtu <bytes>      Interface MTU (default {Ax25Ip.DefaultMtu}). Above {Ax25Ip.MaxMtu(0)} is
+                  --mtu <bytes>      Interface MTU (default {Ax25Ip.DefaultMtu}). Above {Ax25Ip.MaxMtu()} is
                                      allowed but untested against any peer.
                   --config <file>    Config file to use instead of the usual search.
                   --serial <dev[:baud]>  Serial KISS TNC, instead of a <port>.

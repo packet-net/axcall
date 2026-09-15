@@ -137,7 +137,7 @@ public sealed class AxtunArgumentTests
     {
         using var _ = new ConfigScope(ports: OnePort);
 
-        var above = Ax25Ip.MaxMtu(0) + 1;
+        var above = Ax25Ip.MaxMtu() + 1;
         Axtun.Program.ParseArgs(["--addr", "44.131.20.1/24", "--mtu", $"{above}", "radio"])!
             .Mtu.Should().Be(above);
     }

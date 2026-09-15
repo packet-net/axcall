@@ -5,13 +5,9 @@ namespace Axcall;
 /// <summary>One route: an address range, and the station that reaches it.</summary>
 /// <param name="Prefix">The range this route covers.</param>
 /// <param name="Callsign">The station to address frames to.</param>
-/// <param name="Digipeaters">The path to reach it by, empty for a direct one.</param>
-public sealed record IpRoute(IpPrefix Prefix, Callsign Callsign, IReadOnlyList<Callsign> Digipeaters)
+public sealed record IpRoute(IpPrefix Prefix, Callsign Callsign)
 {
-    public override string ToString()
-        => Digipeaters.Count == 0
-            ? $"{Prefix} -> {Callsign}"
-            : $"{Prefix} -> {Callsign} via {string.Join(",", Digipeaters)}";
+    public override string ToString() => $"{Prefix} -> {Callsign}";
 }
 
 /// <summary>Everything the axtun config file holds: where to send, and what may go.</summary>
@@ -63,7 +59,7 @@ public sealed record AxtunConfig(IReadOnlyList<IpRoute> Routes, IReadOnlyList<Eg
 /// <code>
 /// # what reaches where
 /// route 44.131.20.2      PN0TST
-/// route 44.131.91.0/24   GB7RDG-1 via WIDE1-1
+/// route 44.131.91.0/24   GB7RDG-1
 /// route default          GB7RDG-1
 ///
 /// # what may go out (omit these and the default policy applies)
@@ -206,7 +202,7 @@ public static class AxtunFile
 
         if (fields.Length < 3)
         {
-            error = "expected: route <prefix|default> <callsign> [via <digi>[,<digi>]]";
+            error = "expected: route <prefix|default> <callsign>";
             return false;
         }
 
@@ -220,73 +216,21 @@ public static class AxtunFile
             return false;
         }
 
-        IReadOnlyList<Callsign> digipeaters = [];
         if (fields.Length > 3)
         {
-            if (!fields[3].Equals("via", StringComparison.OrdinalIgnoreCase))
-            {
-                error = $"unexpected '{fields[3]}': expected 'via'";
-                return false;
-            }
-            if (fields.Length < 5)
-            {
-                error = "'via' needs a digipeater path";
-                return false;
-            }
-            if (fields.Length > 5)
-            {
-                error = $"unexpected '{fields[5]}': a digipeater path is one comma-separated list";
-                return false;
-            }
-            if (!TryParsePath(fields[4], out digipeaters, out error))
-                return false;
-        }
-
-        route = new IpRoute(prefix, callsign, digipeaters);
-        return true;
-    }
-
-    private static bool TryParsePath(string text, out IReadOnlyList<Callsign> path, out string? error)
-    {
-        path = [];
-        error = null;
-
-        var parts = text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length == 0)
-        {
-            error = "empty digipeater path";
-            return false;
-        }
-        if (parts.Length > MaxDigipeaters)
-        {
-            error = $"a digipeater path is at most {MaxDigipeaters} calls (got {parts.Length})";
+            // "via" is refused rather than ignored. Somebody who wrote a
+            // digipeater path wants their traffic to go through it, and
+            // silently sending direct would be a station that looks configured
+            // and is not reachable.
+            error = fields[3].Equals("via", StringComparison.OrdinalIgnoreCase)
+                ? "digipeater paths are not supported: this carries IP direct, and a route "
+                  + "through a digipeater would need layer 2 digipeating, which this suite does not do"
+                : $"unexpected '{fields[3]}': a route is a prefix and a callsign";
             return false;
         }
 
-        var calls = new List<Callsign>(parts.Length);
-        foreach (var part in parts)
-        {
-            if (!Callsign.TryParse(part.ToUpperInvariant(), out var call))
-            {
-                error = $"invalid digipeater callsign '{part}'";
-                return false;
-            }
-            calls.Add(call);
-        }
-
-        path = calls;
+        route = new IpRoute(prefix, callsign);
         return true;
     }
 
-    /// <summary>
-    /// The address field has room for eight repeaters, but every one of them
-    /// costs seven bytes of every frame and a whole extra transmission.
-    /// </summary>
-    /// <remarks>
-    /// Two is already a long path for IP. #35 closed layer-2 digipeating for
-    /// connected mode, and that reasoning does not carry here: digipeating a UI
-    /// frame is addressing, not a session path held open across someone else's
-    /// retries. Without it, nothing behind a digi is reachable at all.
-    /// </remarks>
-    public const int MaxDigipeaters = 8;
 }

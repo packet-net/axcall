@@ -2,11 +2,10 @@ using Packet.Core;
 
 namespace Axtun;
 
-/// <summary>Where a neighbour was last heard, and by what path.</summary>
+/// <summary>Where a neighbour was last heard.</summary>
 /// <param name="Callsign">The station that answers for the address.</param>
-/// <param name="Digipeaters">The path back to it, empty for a direct one.</param>
 /// <param name="LearnedAt">When it was last heard from.</param>
-public sealed record Neighbour(Callsign Callsign, IReadOnlyList<Callsign> Digipeaters, DateTimeOffset LearnedAt);
+public sealed record Neighbour(Callsign Callsign, DateTimeOffset LearnedAt);
 
 /// <summary>
 /// Stations heard on the air, and the address each of them claimed.
@@ -35,18 +34,19 @@ public sealed class NeighbourTable(TimeProvider? timeProvider = null)
     private readonly Lock gate = new();
 
     /// <summary>
-    /// Note that an address is reachable through a station.
+    /// Note that an address is reachable direct from a station.
     /// </summary>
     /// <remarks>
-    /// The path is the digipeaters the frame came through, reversed, which is
-    /// the route back. A frame that reached us via a digi came from behind it,
-    /// and replying direct would go into the ground.
+    /// Only ever called for a frame that arrived direct. A frame heard through
+    /// a repeater came from behind it, and since nothing here digipeats,
+    /// replying direct would go into the ground; the caller drops those rather
+    /// than recording a station it cannot answer.
     /// </remarks>
-    public void Learn(uint address, Callsign callsign, IReadOnlyList<Callsign> pathBack)
+    public void Learn(uint address, Callsign callsign)
     {
         lock (gate)
         {
-            entries[address] = new Neighbour(callsign, pathBack, time.GetUtcNow());
+            entries[address] = new Neighbour(callsign, time.GetUtcNow());
         }
     }
 
