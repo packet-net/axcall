@@ -89,10 +89,17 @@ jobs:
           # How to publish is the csproj's business: NativeAOT everywhere with a
           # native runner, trimmed single-file plus R2R for armhf.
           #
-          # Both tools publish into one directory. Each is its own binary, and
-          # they share the native library neither can link in, so it is carried
-          # once rather than per tool.
-          for proj in src/Axcall/Axcall.csproj src/Axsocks/Axsocks.csproj src/Axinetd/Axinetd.csproj; do
+          # Every tool publishes into one directory. Each is its own binary, and
+          # they share the native library none of them can link in, so it is
+          # carried once rather than per tool.
+          #
+          # axtun is Linux only. It works through /dev/net/tun; macOS has utun,
+          # which is a different interface, and Windows needs a driver
+          # installed. Shipping a binary that can only say "not supported" would
+          # be worse than not shipping one.
+          projects="src/Axcall/Axcall.csproj src/Axsocks/Axsocks.csproj src/Axinetd/Axinetd.csproj"
+          case "${{ matrix.rid }}" in linux-*) projects="$projects src/Axtun/Axtun.csproj" ;; esac
+          for proj in $projects; do
             dotnet publish "$proj" -c Release -r "${{ matrix.rid }}" --self-contained \
               -p:DebugType=none -p:DebugSymbols=false \
               -p:Version="${{ steps.tag.outputs.version }}" \
@@ -139,7 +146,9 @@ jobs:
           # shape and nobody has to wonder why theirs is different.
           dir="axcall-$TAG-$RID"
           rm -rf stage && mkdir -p "stage/$dir"
-          for tool in axcall axsocks axinetd; do
+          tools="axcall axsocks axinetd"
+          case "$RID" in linux-*) tools="$tools axtun" ;; esac
+          for tool in $tools; do
             cp "$PUB/$tool" "stage/$dir/$tool"
             chmod 0755 "stage/$dir/$tool"
           done
@@ -156,13 +165,17 @@ jobs:
             printf 'axcall %s (%s)\n\n' "$TAG" "$RID"
             printf 'axcall   dial a station and talk to it\n'
             printf 'axsocks  a SOCKS5 proxy onto the same port, for calling out\n'
-            printf 'axinetd  run a program for whoever calls in\n\n'
+            printf 'axinetd  run a program for whoever calls in\n'
+            case "$RID" in
+              linux-*) printf 'axtun    IP over AX.25 on a TUN device, for software that speaks IP\n' ;;
+            esac
+            printf '\n'
             printf 'Keep these files together. They load their serial-port support from a\n'
             printf 'library in this directory, and alone they cannot open a serial port.\n\n'
             printf 'Run them from here, or copy the whole directory somewhere permanent and\n'
             printf 'put that directory on your PATH.\n\n'
-            printf 'On Debian and Ubuntu, install the packages instead: axcall and axsocks are\n'
-            printf 'one .deb each, so you get what you asked for, on your PATH, with man pages.\n\n'
+            printf 'On Debian and Ubuntu, install the packages instead: one .deb per program,\n'
+            printf 'so you get what you asked for, on your PATH, with a man page.\n\n'
             printf 'https://github.com/packet-net/axcall\n'
           } > "stage/$dir/README"
 
@@ -216,7 +229,8 @@ jobs:
           scripts/deb-install-smoke.sh \
             artifacts/axcall_*_${{ matrix.deb }}.deb \
             artifacts/axsocks_*_${{ matrix.deb }}.deb \
-            artifacts/axinetd_*_${{ matrix.deb }}.deb
+            artifacts/axinetd_*_${{ matrix.deb }}.deb \
+            artifacts/axtun_*_${{ matrix.deb }}.deb
 
       - name: Collect the .debs
         if: matrix.deb != ''
@@ -250,11 +264,11 @@ jobs:
           mkdir -p dist
           find staged -type f -exec cp {} dist/ \;
           ls -l dist
-          # Five tarballs, one Windows .zip, and three .debs for each of three
+          # Five tarballs, one Windows .zip, and four .debs for each of three
           # architectures: one package per program. Fail loudly rather than
           # publishing a release quietly missing a platform or a tool.
           count=$(find dist -type f | wc -l)
-          [ "$count" -eq 15 ] || { echo "expected 15 artifacts, got $count"; exit 1; }
+          [ "$count" -eq 18 ] || { echo "expected 18 artifacts, got $count"; exit 1; }
 
       - name: Create release
         if: github.event.inputs.dry_run != 'true'

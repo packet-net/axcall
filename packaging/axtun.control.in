@@ -1,0 +1,33 @@
+Package: axtun
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Tom Fanning <tom@m0lte.uk>
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Section: hamradio
+Priority: optional
+Homepage: https://github.com/packet-net/axcall
+Description: IP over AX.25 on a TUN device
+ Carries IP over an AX.25 radio channel on a TUN device, so software that
+ already exists works over radio: ping, ssh, UDP, and a route to a remote
+ site's whole LAN. None of that is reachable through a stream proxy, which is
+ what axsocks and axinetd are.
+ .
+ Transmits IP in UI frames with PID 0xCC, because running IP inside a reliable
+ ARQ link sets two retransmission timers against the same loss and wrecks TCP's
+ round trip estimate. Accepts IP either way on receive, since both are
+ configured in the field. Answers AX.25 ARP, so a station that has not been
+ told about this one can still find it.
+ .
+ Filters what goes out, and starts closed. An unfiltered IP interface on a
+ shared channel transmits mDNS, SSDP, NetBIOS and DHCP renewals unasked, under
+ the operator's personal licence; nothing is transmitted here that no rule
+ allows.
+ .
+ Carries its own AX.25 layer and speaks KISS to a TNC over a serial port or
+ over TCP, so it needs no kernel AX.25 stack and no kissattach. Creating the
+ interface needs CAP_NET_ADMIN; given a persistent device created in advance it
+ runs unprivileged.
+ .
+ Self-contained: bundles its own .NET runtime, so no system runtime is
+ required.

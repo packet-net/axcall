@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\Tool.props" />
+
+  <PropertyGroup>
+    <AssemblyName>axtun</AssemblyName>
+    <RootNamespace>Axtun</RootNamespace>
+    <!-- The TUN device is three ioctls and a poll. LibraryImport generates the
+         marshalling for them, and the generated code is unsafe by construction. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Axcall.Tests" />
+  </ItemGroup>
+
+</Project>

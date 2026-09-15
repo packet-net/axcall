@@ -18,7 +18,8 @@
 #   4. each does the AX.25-specific thing it is for: resolves a ports file, and
 #      reports the documented exit code - and gets far enough into opening a
 #      serial port to prove the native serial library is present, which an exit
-#      code alone does not show.
+#      code alone does not show. axtun opens a TUN device before it looks at the
+#      modem, so it is checked against whichever of those it can reach.
 #   5. axcall takes over /usr/bin/axcall from ax25-apps, which owns that path,
 #      via the declared Conflicts + Replaces.
 #   6. `apt purge` removes them cleanly.
@@ -100,6 +101,8 @@ for pkg in $PACKAGES; do
 done
 [ -e /etc/axcall/ports ] && fail "shipped an /etc conffile (it would prompt on upgrade)"
 has axsocks && { [ -f /usr/share/doc/axsocks/examples/hosts ] || fail "no example hosts file"; }
+has axinetd && { [ -f /usr/share/doc/axinetd/examples/inetd ] || fail "no example inetd file"; }
+has axtun && { [ -f /usr/share/doc/axtun/examples/axtun ] || fail "no example axtun config"; }
 
 echo "--- 3. the binaries run on a bare base"
 for pkg in $PACKAGES; do
@@ -135,8 +138,8 @@ fi
 # It still exits 3, which is why the assertion above passed all through v0.5.0
 # and v0.6.0 while every serial port was broken. Read the message, not the code.
 for pkg in $PACKAGES; do
-  # axcall dials a destination; axsocks takes the port alone and waits for a
-  # SOCKS client to name one. Both reach the modem, which is the point here.
+  # axcall dials a destination; axsocks and axtun take the port alone. All of
+  # them reach the modem, which is the point here.
   case "$pkg" in
     axcall) args="radio gb7rdg" ;;
     *)      args="radio" ;;
@@ -153,6 +156,23 @@ for pkg in $PACKAGES; do
     *"Unable to load shared library"*)
       echo "$out"; fail "$pkg is missing its native serial library" ;;
   esac
+  # axtun opens the TUN device before the modem, so which complaint is the
+  # right one depends on whether this container was given one. Either way it
+  # has to name the thing it could not open rather than fall over on its own.
+  if [ "$pkg" = axtun ] && [ ! -c /dev/net/tun ]; then
+    case "$out" in
+      *"/dev/net/tun"*) ;;
+      *) echo "$out"; fail "axtun: expected a complaint about the missing TUN device" ;;
+    esac
+    continue
+  fi
+  if [ "$pkg" = axtun ] && [ "${AXTUN_NET_ADMIN:-0}" != "1" ]; then
+    case "$out" in
+      *"CAP_NET_ADMIN"*) ;;
+      *) echo "$out"; fail "axtun: expected a complaint about not being allowed to create the interface" ;;
+    esac
+    continue
+  fi
   case "$out" in
     *"/dev/ttyUSB0"*) ;;
     *) echo "$out"; fail "$pkg: expected a complaint about the missing device" ;;
@@ -200,13 +220,28 @@ done
 echo "SMOKE_OK"
 '
 
+# axtun creates a TUN interface, which needs /dev/net/tun and CAP_NET_ADMIN.
+# Hand both to the container when the host has them, so the assertions exercise
+# the path that matters rather than the first error on the way to it. Without
+# them the run still happens; axtun is then checked against whichever complaint
+# it can honestly make.
+TUN_ARGS=""
+AXTUN_NET_ADMIN=0
+if [ -c /dev/net/tun ]; then
+  TUN_ARGS="--device /dev/net/tun --cap-add NET_ADMIN"
+  AXTUN_NET_ADMIN=1
+else
+  echo "note: no /dev/net/tun on this host; axtun will be checked against that." >&2
+fi
+
 status=0
 for image in $IMAGES; do
   echo "================================================================"
   echo "== smoke: $image"
   echo "================================================================"
-  if docker run --rm --platform "$PLATFORM" -v "$DEB_DIR":/work:ro \
-       -e DEB_BASES="$DEB_BASES" -e PACKAGES="$PACKAGES" \
+  # shellcheck disable=SC2086
+  if docker run --rm --platform "$PLATFORM" -v "$DEB_DIR":/work:ro $TUN_ARGS \
+       -e DEB_BASES="$DEB_BASES" -e PACKAGES="$PACKAGES" -e AXTUN_NET_ADMIN="$AXTUN_NET_ADMIN" \
        "$image" /bin/sh -c "$INNER"; then
     echo "== $image: OK"
   else

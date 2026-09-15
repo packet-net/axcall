@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\src\Axcall\Axcall.csproj" />
     <ProjectReference Include="..\..\src\Axsocks\Axsocks.csproj" />
     <ProjectReference Include="..\..\src\Axinetd\Axinetd.csproj" />
+    <ProjectReference Include="..\..\src\Axtun\Axtun.csproj" />
   </ItemGroup>
 
   <ItemGroup>

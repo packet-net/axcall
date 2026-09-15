@@ -1,0 +1,65 @@
+# axtun configuration.
+#
+# Two things live here: which station reaches which addresses, and what is
+# allowed out of the radio.
+#
+# Copy to /etc/axcall/axtun for everyone, or ~/.config/axcall/axtun for
+# yourself; a route in the per-user file replaces one for the same range in the
+# system file.
+
+# ---------------------------------------------------------------------------
+# Routes
+#
+# A TUN device is NOARP: the kernel hands the packet over and never asks who
+# owns the address on this link. So this table is not an optimisation, it is
+# the whole of how a packet finds a station, and it is static on purpose.
+# Deciding at run time which transmitter to key, based on something a stranger
+# said on the air, is not a decision to hand to a discovery protocol.
+#
+# Longest prefix wins, as in any routing table: a host route beats the subnet
+# it sits in, and the subnet beats the default.
+#
+# "via" gives a digipeater path, up to eight calls, comma separated with no
+# spaces. Each one costs seven bytes of every frame and a whole extra
+# transmission, so two is already a long path for IP. Without it, nothing
+# behind a digi is reachable at all.
+#
+# An address heard on the air but not listed here is remembered for an hour,
+# so a station that ARPs for us becomes reachable without being written down.
+# Anything listed here wins over anything heard.
+
+# range                callsign     path
+#route 44.131.20.2      PN0TST
+#route 44.131.91.0/24   GB7RDG-1    via WIDE1-1
+#route default          GB7RDG-1
+
+# ---------------------------------------------------------------------------
+# What may go out
+#
+# Put an unfiltered IP interface on a shared radio channel and the machine will
+# transmit, unasked and forever: mDNS, LLMNR, SSDP, NetBIOS, DHCP renewals,
+# IPv6 router solicitations, NTP. Nobody requested any of it, all of it goes
+# out under the operator's callsign, and on a channel where one full frame
+# takes over a second at 1200 baud it is not harmless background noise.
+#
+#   allow|deny <protocol> [to <range>] [port <n[-m]>]
+#
+# Rules are tried in order and the first match decides. Anything no rule
+# matches does not go out. The protocol is icmp, tcp, udp, a number, or "any";
+# the destination defaults to any; only tcp and udp rules can name a port.
+#
+# Two things no ordinary rule can let through. A multicast, broadcast or
+# link-local destination needs a rule that names its range explicitly, because
+# a wildcard rule was written by somebody thinking about unicast. And anything
+# that is not IPv4 never reaches the filter, because a packet whose shape is
+# not understood cannot be judged.
+#
+# With no allow or deny lines at all, a default policy applies: ping, TCP and
+# UDP to a unicast address, with the loud ports taken back out. The first time
+# each kind of packet is dropped, axtun says so on standard error, which is how
+# to find out what to add here.
+
+#allow icmp
+#allow tcp to 44.0.0.0/8
+#allow udp to 44.0.0.0/8 port 123
+#deny  tcp to 44.0.0.0/8 port 445

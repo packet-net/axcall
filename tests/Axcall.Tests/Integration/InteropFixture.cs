@@ -18,10 +18,10 @@ public sealed class InteropFixture : IAsyncLifetime
 
     public static string NetsimHost => "127.0.0.1";
 
-    /// <summary>Host port mapped to net-sim node a (KISS 8100) — the hub endpoint.</summary>
+    /// <summary>Host port mapped to net-sim node a (KISS 8100): the hub endpoint.</summary>
     public int NetsimKissPort => netsimContainer?.GetMappedPublicPort(8100) ?? throw new InvalidOperationException("not started");
 
-    /// <summary>Host port mapped to net-sim node b (KISS 8101) — the axcall-to-axcall listen peer.</summary>
+    /// <summary>Host port mapped to net-sim node b (KISS 8101): the axcall-to-axcall listen peer.</summary>
     public int NetsimKissPortB => netsimContainer?.GetMappedPublicPort(8101) ?? throw new InvalidOperationException("not started");
 
     public async Task InitializeAsync()
@@ -52,7 +52,7 @@ public sealed class InteropFixture : IAsyncLifetime
         await netsimContainer.StartAsync().ConfigureAwait(false);
 
         // Get netsim's IP on the Docker network so LinBPQ can dial it
-        // (LinBPQ doesn't resolve hostnames — IPADDR must be a numeric IP)
+        // (LinBPQ doesn't resolve hostnames, IPADDR must be a numeric IP)
         var ipResult = await netsimContainer.ExecAsync(["hostname", "-i"]).ConfigureAwait(false);
         var netsimIp = ipResult.Stdout.Trim();
 
@@ -68,6 +68,25 @@ public sealed class InteropFixture : IAsyncLifetime
             .WithResourceMapping(Path.Combine(tempDir, "bpq32.cfg"), "/data/")
             .WithPortBinding(8010, true)
             .WithPortBinding(8008, true)
+            // LinBPQ's IP gateway wants pcap on an Ethernet interface and a TAP
+            // device, and disables itself entirely without them. See the
+            // IPGATEWAY section of bpq32.cfg for why. A host with no
+            // /dev/net/tun fails the whole fixture rather than silently
+            // running the IP tests against a node with no IP stack.
+            .WithCreateParameterModifier(parameters =>
+            {
+                parameters.HostConfig ??= new Docker.DotNet.Models.HostConfig();
+                parameters.HostConfig.CapAdd = ["NET_ADMIN", "NET_RAW"];
+                parameters.HostConfig.Devices =
+                [
+                    new Docker.DotNet.Models.DeviceMapping
+                    {
+                        PathOnHost = "/dev/net/tun",
+                        PathInContainer = "/dev/net/tun",
+                        CgroupPermissions = "rwm",
+                    },
+                ];
+            })
             .WithWaitStrategy(Wait.ForUnixContainer()
                 .UntilHttpRequestIsSucceeded(r => r.ForPort(8008)))
             .Build();

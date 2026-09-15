@@ -4,6 +4,7 @@
     <Project Path="src/Axcall.Core/Axcall.Core.csproj" />
     <Project Path="src/Axinetd/Axinetd.csproj" />
     <Project Path="src/Axsocks/Axsocks.csproj" />
+    <Project Path="src/Axtun/Axtun.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Axcall.Tests/Axcall.Tests.csproj" />
