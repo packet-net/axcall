@@ -16,6 +16,11 @@
   <ItemGroup>
     <EmbeddedResource Include="Integration\Resources\network.yaml" />
     <EmbeddedResource Include="Integration\Resources\bpq32.cfg" />
+    <EmbeddedResource Include="Integration\Peers\Resources\Dockerfile" />
+    <EmbeddedResource Include="Integration\Peers\Resources\with-kiss-pty.sh" />
+    <EmbeddedResource Include="Integration\Peers\Resources\XROUTER.CFG" />
+    <EmbeddedResource Include="Integration\Peers\Resources\IPROUTE.SYS" />
+    <EmbeddedResource Include="Integration\Peers\Resources\xrouter-network.yaml" />
   </ItemGroup>
 
 </Project>

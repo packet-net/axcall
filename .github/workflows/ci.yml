@@ -30,5 +30,12 @@ jobs:
       # Runs unit + integration tests. The integration tests require Docker
       # (Testcontainers spins up net-sim + LinBPQ); the runner is expected to
       # have it, and the suite fails loudly if it doesn't.
+      #
+      # Category=Peers is excluded: that is the on-demand suite against other
+      # implementations, run with scripts/peer-interop.sh when the IP code
+      # changes or a peer is updated. The reason it is not here is not cost.
+      # Its kernel leg cannot run in a container at all, because AF_AX25 is
+      # refused inside a non-init user namespace and this runner is one, so a
+      # peer suite CI could run in full does not exist. See docs/ip-over-ax25.md.
       - name: test
-        run: dotnet test tests/Axcall.Tests/Axcall.Tests.csproj --nologo --no-build
+        run: dotnet test tests/Axcall.Tests/Axcall.Tests.csproj --nologo --no-build --filter "Category!=Peers"
