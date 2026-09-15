@@ -136,9 +136,11 @@ On receive, both are accepted. A peer whose route says virtual-circuit mode is
 a peer that exists, and refusing its frames would gain nothing.
 .PP
 ARP is PID 0xCD, in the AX.25 form: hardware type 3, seven-octet addresses,
-thirty bytes. The protocol type field is sent as 0x0800, accepted whatever it
-says, and reflected back as it arrived, because LinBPQ uses 0x00CC there and
-the kernel is expected to use 0x0800, and neither appears to check it.
+thirty bytes. The protocol type field is sent as 0x00CC, which is AX25_P_IP
+rather than the ETH_P_IP that RFC 826 would suggest: LinBPQ, XRouter and the
+Linux kernel all send it, and the kernel discards an ARP request carrying
+anything else without replying. It is accepted whatever it says on receive, and
+a reply reflects what the request used.
 .PP
 Van Jacobson header compression (PID 0x06) is not implemented. LinBPQ does not
 implement it either, and it is usually described as belonging to the

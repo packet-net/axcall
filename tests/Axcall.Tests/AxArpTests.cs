@@ -42,12 +42,12 @@ public class AxArpTests
     {
         var request = new AxArpMessage(
             AxArpOperation.Request, Us, OurAddress, AxArpMessage.NoCallsign, TheirAddress,
-            AxArpMessage.ProtocolTypeBpq);
+            AxArpMessage.ProtocolTypeIp);
 
         var bytes = request.ToBytes();
 
         bytes[0..2].Should().Equal([0x00, 0x03], "hardware type 3 is AX.25 level 2");
-        bytes[2..4].Should().Equal([0x00, 0xCC], "the protocol type asked for");
+        bytes[2..4].Should().Equal([0x00, 0xCC], "AX25_P_IP: what every implementation sends, and what the Linux kernel requires");
         bytes[4].Should().Be(7, "an AX.25 hardware address is one 7 octet address slot");
         bytes[5].Should().Be(4, "an IPv4 address is 4 octets");
         bytes[6..8].Should().Equal([0x00, 0x01], "operation 1 is a request");
@@ -80,7 +80,7 @@ public class AxArpTests
     /// </summary>
     [Theory]
     [InlineData(AxArpMessage.ProtocolTypeIp)]
-    [InlineData(AxArpMessage.ProtocolTypeBpq)]
+    [InlineData(AxArpMessage.ProtocolTypeEthernetIp)]
     [InlineData((ushort)0x1234)]
     public void The_Protocol_Type_Is_Carried_Not_Checked(ushort protocolType)
     {
@@ -88,6 +88,21 @@ public class AxArpTests
 
         AxArpMessage.TryParse(message.ToBytes(), out var parsed).Should().BeTrue();
         parsed!.ProtocolType.Should().Be(protocolType);
+    }
+
+    /// <summary>
+    /// The value sent is not a style choice. A Linux AX.25 peer discards an
+    /// ARP request carrying anything else, without a reply, so getting this
+    /// wrong means never being answered by a kernel station.
+    /// </summary>
+    [Fact]
+    public void The_Protocol_Type_Sent_Is_The_One_The_Kernel_Answers()
+    {
+        AxArpMessage.ProtocolTypeIp.Should().Be(0x00CC);
+
+        var request = new AxArpMessage(AxArpOperation.Request, Us, OurAddress, AxArpMessage.NoCallsign, TheirAddress);
+        request.ProtocolType.Should().Be(0x00CC, "the default is what goes on the air");
+        request.ToBytes()[2..4].Should().Equal([0x00, 0xCC]);
     }
 
     [Fact]
