@@ -142,10 +142,11 @@ Linux kernel all send it, and the kernel discards an ARP request carrying
 anything else without replying. It is accepted whatever it says on receive, and
 a reply reflects what the request used.
 .PP
-Van Jacobson header compression (PID 0x06) is not implemented. LinBPQ does not
-implement it either, and it is usually described as belonging to the
-NOS-derived stacks, but that has not been tested here. A peer that sends
-compressed headers will not be understood.
+Van Jacobson header compression (PID 0x06) is not implemented, and nothing
+appears to need it. The specification defines the PID, but LinBPQ does not
+implement it, XRouter's manuals never mention it, and JNOS, which is the stack
+usually credited with it, wires its RFC 1144 codec to SLIP and PPP and not to
+AX.25 at all.
 .SH EGRESS FILTERING
 .B axtun
 decides what may be transmitted before transmitting it, and starts closed.

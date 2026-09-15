@@ -12,7 +12,7 @@ Three specific things to be suspicious of until they are tested more widely:
 
 - **The 328-byte frame ceiling** is LinBPQ's KISS receive limit and nothing else. Another stack may take more, or less. `--mtu` will go above it and warns rather than refusing.
 - ~~**The ARP protocol type we send** (0x0800) is read from the Linux kernel's generic ARP path, not observed.~~ **Measured, and it was wrong.** See below: every implementation sends 0x00CC and the kernel refuses anything else. Fixed.
-- **"VJ compression is a NOS thing"** rests on LinBPQ not implementing it. That says nothing about how common it is among the peers that do.
+- ~~**"VJ compression is a NOS thing"** rests on LinBPQ not implementing it.~~ **Checked against JNOS itself.** See below: it is not an AX.25 feature in JNOS either.
 
 A proper multi-implementation interop campaign is tracked in #53. Run it with `scripts/peer-interop.sh`; it is deliberately not in CI, for reasons that are about capability rather than cost. See the peer suite note at the end.
 
@@ -142,7 +142,7 @@ but it could not be observed end to end on the air, because nothing is currently
 
 LinBPQ's layer 2 sends PID 0xCC, 0xCD and 0x08 to its IP stack and nothing else. There is no handling of 0x06 or 0x07 anywhere in it.
 
-That is all this observation supports. It does not establish that VJ is rare, only that one implementation does without it, and the usual claim that it belongs to JNOS and the NOS-derived stacks has not been checked here. `axtun` does not implement it, which is a scope decision rather than a finding, and the man page says so rather than leaving it to be discovered. If a campaign against JNOS shows compressed peers are common, this is the first thing to add.
+That was as far as this went for a while, and the standing assumption was that VJ belonged to JNOS and the NOS-derived stacks. It does not. See the JNOS section at the end.
 
 ## What that made axtun do
 
@@ -274,3 +274,60 @@ XRouter runs in a container and is covered. The Linux kernel needs the `ax25-lab
 **This suite is on demand, and the reason is capability rather than cost.** A peer suite CI could run in full does not exist, because the kernel leg cannot run on the runner at any price. Given that, running the containerised half nightly buys little: the peers change about once a year and our code changes daily.
 
 The failure mode of any on-demand suite is that nobody runs it and it rots, and the first person to try after six months cannot tell a regression from bit-rot in the harness. The mitigation here is that every run dates its findings in this document, so a stale result is visibly stale rather than silently assumed.
+
+---
+
+# JNOS, and the Van Jacobson compression question
+
+*Checked 2026-09-15 against JNOS 2.0p.6 (February 2025), read from source rather than run.*
+
+The interop table carried a row saying Van Jacobson header compression (PID 0x06) was needed for "JNOS and NOS-derived stacks", and that without it "a compressed peer is unintelligible, and we waste the channel". That row came from the AX.25 specification, which does define PIDs 0x06 and 0x07 for compressed and uncompressed Van Jacobson TCP/IP, plus the general knowledge that NOS-derived software does VJ.
+
+**JNOS does not do Van Jacobson compression over AX.25.** It does VJ, and it has the full RFC 1144 implementation in `slhc.c`, but that is wired to SLIP and PPP and to nothing else:
+
+```
+$ grep -rln "slhc_compress|slhc_uncompress" --include=*.c .
+ppp.c
+slip.c
+slhc.c
+```
+
+No AX.25 source file references it. And `ax25.h`'s PID list has no entry for 0x06 or 0x07 at all:
+
+```c
+#define PID_X25     0x01    /* CCITT X.25 PLP */
+#define PID_SEGMENT 0x08    /* Segmentation fragment */
+...
+#define PID_IP      0xcc    /* ARPA Internet Protocol */
+#define PID_ARP     0xcd    /* ARPA Address Resolution Protocol */
+```
+
+So the row named the one implementation that was supposed to prove it, and that implementation does not do it.
+
+## Where that leaves the row
+
+Three implementations inspected or tested, none of which does VJ over AX.25:
+
+| | Van Jacobson over AX.25 |
+|---|---|
+| LinBPQ 6.0.25.28 | not implemented; dispatches 0xCC, 0xCD and 0x08 only |
+| JNOS 2.0p.6 | not implemented for AX.25; VJ is SLIP and PPP only |
+| XRouter 505c | no mention of compression in any of its manuals |
+
+`axtun` does not implement it, and that is now a finding rather than a scope decision. The row is closed.
+
+## Why it probably never happened
+
+*Reasoning, not observation, and flagged as such.*
+
+VJ compression encodes each header as a delta against the previous packet on the connection. That is why it wins so much: a 40-byte TCP/IP header becomes about five bytes. It also means a lost packet desynchronises the decompressor until an uncompressed header resynchronises it.
+
+On a wire running SLIP or PPP that is a fine trade. On a half-duplex radio channel carrying IP in **UI frames**, which is unacknowledged by construction and the encapsulation everything here actually uses, losing packets is the normal case rather than the exception. The compression would spend on recovery most of what it saved.
+
+That would make VJ over AX.25 a virtual-circuit-only feature, and virtual circuit is the minority mode. A feature that only works in the mode most people do not use, on a link layer where the failure mode is silent corruption of the next several packets, is a plausible thing for three independent implementations to have each decided against.
+
+## What was not done
+
+JNOS was read, not run. Building and running it was the plan, and the source answered the question before that was necessary: there is no code path to test. Its home at langelaar.net was unreachable throughout, so the source came from the [Rhizomatica mirror](https://github.com/Rhizomatica/jnos2), last updated March 2025.
+
+If JNOS is ever wanted as a live peer for something else, the build is `make clean ; ./configure ; make` and the mirror is current.
