@@ -43,7 +43,19 @@ public sealed class IpOverAx25Tests
     /// <summary>Off-net, so a packet from it has to be routed rather than consumed.</summary>
     private static readonly IPAddress Elsewhere = IPAddress.Parse("44.131.99.9");
 
-    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(45);
+
+    /// <summary>
+    /// How long to wait before asking again.
+    /// </summary>
+    /// <remarks>
+    /// Everything here travels in UI frames, which are unacknowledged, and the
+    /// simulated channel has 10 dB of loss on it by design. A single
+    /// transmission is therefore not a test of anything: losing one is normal
+    /// behaviour for the protocol, not a failure of the thing under test. So
+    /// ask again, the way ping and every ARP resolver do.
+    /// </remarks>
+    private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(10);
 
     private readonly InteropFixture fixture;
     private readonly ITestOutputHelper output;
@@ -234,7 +246,7 @@ public sealed class IpOverAx25Tests
             oversize,
             frame => Ax25Ip.TryGetPayload(frame, Ax25Pid.Ip, out _),
             cts.Token,
-            timeout: TimeSpan.FromSeconds(20));
+            timeout: TimeSpan.FromSeconds(25));
 
         ignored.Should().BeNull("a frame over the size LinBPQ accepts is discarded without a word");
 
@@ -305,9 +317,19 @@ public sealed class IpOverAx25Tests
         // fast answer on a slow channel is missed.
         await Task.Delay(TimeSpan.FromMilliseconds(250), ct).ConfigureAwait(false);
 
-        output.WriteLine($"tx {outbound.Source.Callsign}>{outbound.Destination.Callsign} "
-            + $"pid={(outbound.Pid is { } p ? $"0x{p:X2}" : "none")} {outbound.Info.Length} bytes");
-        await kiss.SendFrameAsync(outbound.ToBytes(), ct).ConfigureAwait(false);
+        var bytes = outbound.ToBytes();
+        var label = $"tx {outbound.Source.Callsign}>{outbound.Destination.Callsign} "
+            + $"pid={(outbound.Pid is { } p ? $"0x{p:X2}" : "none")} {outbound.Info.Length} bytes";
+
+        while (!reader.IsCompleted && !window.IsCancellationRequested)
+        {
+            output.WriteLine(label);
+            await kiss.SendFrameAsync(bytes, ct).ConfigureAwait(false);
+
+            var elapsed = await Task.WhenAny(reader, Task.Delay(RetryInterval, window.Token)).ConfigureAwait(false);
+            if (elapsed == reader)
+                break;
+        }
 
         await reader.ConfigureAwait(false);
         return collected;

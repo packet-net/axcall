@@ -92,8 +92,44 @@ public sealed class InteropFixture : IAsyncLifetime
             .Build();
         await linbpqContainer.StartAsync().ConfigureAwait(false);
 
-        // LinBPQ retries the KISS-TCP dial; give it time to connect and initialise
-        await Task.Delay(TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+        await WaitForLinbpqOnTheAirAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Wait until LinBPQ has dialled net-sim and is reachable over the air.
+    /// </summary>
+    /// <remarks>
+    /// The HTTP wait strategy above only proves the process started; its KISS
+    /// port is a separate outbound dial that it retries on its own schedule,
+    /// and a test that transmits before that lands gets no answer and no
+    /// explanation. A fixed sleep here was enough most of the time, which is
+    /// the worst amount of enough. net-sim says when the client attaches, so
+    /// wait for it to say so.
+    /// </remarks>
+    private async Task WaitForLinbpqOnTheAirAsync()
+    {
+        // Node c is the one LinBPQ dials; see network.yaml.
+        const string Attached = "on port 8102";
+        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(2);
+
+        while (DateTime.UtcNow < deadline)
+        {
+            var logs = await GetNetsimLogsAsync().ConfigureAwait(false);
+            if (logs.Contains("Attached to KISS TCP client", StringComparison.Ordinal)
+                && logs.Contains(Attached, StringComparison.Ordinal))
+            {
+                // Attached is not the same as initialised: the node still has
+                // its own start-up to do before it will answer anything.
+                await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException(
+            "LinBPQ never attached to net-sim's KISS port. Its own log follows:\n"
+            + await GetLinbpqLogsAsync().ConfigureAwait(false));
     }
 
     public async Task<string> GetNetsimLogsAsync()
