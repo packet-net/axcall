@@ -3,30 +3,48 @@ capture_db: 6.0
 collision_mode: silence
 
 nodes:
-  # Hub node — the "our outbound" endpoint used by every test.
+  # Hub node: the "our outbound" endpoint used by every test.
   - id: a
     ports:
       - id: vhf
         modem:
-          mode: afsk1200
+          mode: gfsk9600
         kiss_port: 8100
-  # Second host-side endpoint — the axcall-to-axcall listen peer.
+  # Second host-side endpoint: the axcall-to-axcall listen peer.
   - id: b
     ports:
       - id: vhf
         modem:
-          mode: afsk1200
+          mode: gfsk9600
         kiss_port: 8101
   # LinBPQ dials this one from inside the Docker network.
   - id: c
     ports:
       - id: vhf
         modem:
-          mode: afsk1200
+          mode: gfsk9600
         kiss_port: 8102
 
+# 9600 rather than 1200, for robustness rather than speed. The long-frame
+# fragmentation test transmits a 316-byte frame, which is 2.1 seconds of air
+# time at 1200 baud, and the simulator's demodulator does not always survive
+# that on a loaded CI runner: the channel log for the failures shows six
+# consecutive transmissions from node a and not one of them decoded at node c,
+# while 46-byte frames on the same channel got through fine. At 9600 the same
+# frame is 0.26 seconds, which is eight times less exposure.
+#
+# It does not make the suite faster, which was the first thing tried and
+# measured: about 45 seconds of every run is container startup and the rest is
+# dominated by deliberately conservative retry timers, so 9600 came out at
+# 1m55s against 1m52s to 2m05s at 1200. Robustness was the reason, not speed.
+#
+# 9600 is also the regime this is for. IP over AX.25 at 1200 baud is a
+# curiosity; docs/familiar-interfaces.md says so, and testing the thing in the
+# regime nobody would use it in was never the point.
+#
 # Node a is the hub: a<->b carries the axcall-to-axcall test, a<->c carries
 # the LinBPQ tests. b and c are not linked, keeping the two scenarios apart.
+# One modem per node, so the rate is necessarily the same on both links.
 links:
   - { from: a.vhf, to: b.vhf, loss_db: 10 }
   - { from: b.vhf, to: a.vhf, loss_db: 10 }

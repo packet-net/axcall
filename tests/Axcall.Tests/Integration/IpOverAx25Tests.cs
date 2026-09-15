@@ -45,8 +45,8 @@ public sealed class IpOverAx25Tests
 
     private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(120);
 
-    /// <summary>The channel the harness simulates.</summary>
-    private const double ChannelBitsPerSecond = 1200;
+    /// <summary>The channel the harness simulates; see network.yaml.</summary>
+    private const double ChannelBitsPerSecond = 9600;
 
     /// <summary>
     /// How long to leave between asking again, for a frame of this size.
@@ -56,13 +56,11 @@ public sealed class IpOverAx25Tests
     /// Everything here travels in UI frames, which are unacknowledged, so
     /// asking once is not a test of anything: losing a frame is the protocol
     /// behaving normally. But asking again on a fixed short timer is worse
-    /// than not asking at all, and the CI runner proved it. A 316-byte frame
-    /// is two seconds of air time at 1200 baud, and the simulator does not run
-    /// faster than real time under load. Retrying every ten seconds queued
-    /// transmissions behind each other until the node was keying almost
-    /// continuously, and a half-duplex node that is transmitting is deaf: the
-    /// peer answered, and nothing was listening. The channel log showed both
-    /// fragments leaving the peer and neither arriving.
+    /// than not asking at all, and the CI runner proved it. Retrying faster
+    /// than a frame takes to transmit queues transmissions behind each other
+    /// until the node is keying almost continuously, and a half-duplex node
+    /// that is transmitting is deaf: the peer answers, and nothing is
+    /// listening.
     /// </para>
     /// <para>
     /// So the interval is the frame's own air time with a large factor on it,
