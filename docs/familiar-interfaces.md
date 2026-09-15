@@ -192,9 +192,11 @@ The encoding is the easy part and it interoperates: IP in AX.25 with PID 0xCC is
 | Accept VC as well as datagram | kernel routes set to `mode vc`, JNOS, BPQ | a VC-configured peer simply cannot reach us |
 | Answer ARP (PID 0xCD) | any peer without us in its static map | we are unreachable until someone hand-configures us |
 | Digipeated UI | anything behind a digi | large parts of AMPRNet are unreachable |
-| Van Jacobson header compression (PID 0x06) | JNOS and NOS-derived stacks | a compressed peer is unintelligible, and we waste the channel |
+| ~~Van Jacobson header compression (PID 0x06)~~ | ~~JNOS and NOS-derived stacks~~ | **Wrong. JNOS does not do VJ over AX.25 either; see below** |
 
 The last one deserves more than a table row. `Ax25Pid` already names `CompressedTcpIp = 0x06` and `UncompressedTcpIp = 0x07`. VJ takes about 40 bytes of TCP/IP header down to about 5. Against a 236-byte MTU that is not a micro-optimisation, it is a meaningful fraction of every packet on a channel where a full frame already takes over a second. Any implementation that skips it is both slower and deaf to peers that use it.
+
+*That paragraph is wrong, and it is left here because how it went wrong is the useful part. The row named JNOS, so JNOS was eventually read: it has the full RFC 1144 implementation in `slhc.c`, wired to SLIP and PPP, and no AX.25 source file references it. `ax25.h` does not even define a PID for it. LinBPQ does not implement it and XRouter's manuals never mention it. The specification defines the PIDs; three independent implementations decided against using them. Nothing is deaf to anything. See `docs/ip-over-ax25.md`.*
 
 None of this should be settled by reading man pages, which is all the above is. LinBPQ has an IP stack and is already running in this repo's Testcontainers harness for the connected-mode integration tests, so an IP-over-AX.25 interop test can be built against a real implementation. That is the first thing to do if Path B is ever picked up, before writing the TUN plumbing: prove the encapsulation against something real, then build out from there.
 
@@ -214,7 +216,7 @@ That is what was done, and two rows of the table above came out differently once
 
 **Virtual-circuit IP transmission is broken in LinBPQ on 64-bit.** Set an ARP entry to mode V, give LinBPQ a packet for it, and it opens an AX.25 session correctly and then sends an I-frame with four bytes of the previous UI header where the PID should be. `SendNetFrame` indexes the frame buffer at fixed offsets that assume a four-byte `CHAIN` pointer, which is what it was on 32-bit. The datagram path uses struct members and is correct, which is why only this path is affected. This is worth reporting upstream. It also means the "accept VC as well as datagram" row is proven on our side by unit test and by reading LinBPQ's receive path, but could not be observed on the air, because there is currently nothing sending it correctly.
 
-**LinBPQ has no Van Jacobson compression at all.** Its layer 2 dispatches PID 0xCC, 0xCD and 0x08 to its IP stack and nothing else. That is the whole of what was established: it does not show that VJ is rare, only that one implementation does without it. The usual claim that it belongs to JNOS and its descendants was not checked. `axtun` ships without it and says so, which is a scope decision rather than a finding.
+**Nothing does Van Jacobson compression over AX.25.** LinBPQ's layer 2 dispatches PID 0xCC, 0xCD and 0x08 and nothing else. XRouter's manuals never mention compression. And JNOS, the implementation the row was named after, has the full RFC 1144 codec in `slhc.c` wired to SLIP and PPP, with no AX.25 source file referencing it and no PID defined for it. Three implementations, none of them doing the thing the design document said we had to interoperate with. `axtun` ships without it, and that is a finding rather than a scope decision.
 
 **A TUN device is NOARP, which makes the route table structural.** The kernel never asks who owns an address on this link; it hands the packet over. So the static map is not an optimisation that could be replaced by discovery later, it is the whole of how a packet finds a station. Answering ARP is what stops that being a closed world: a station that ARPs for us is remembered for an hour, with the reverse of the path it arrived by, so anything behind a digipeater becomes reachable without being written down.
 
@@ -242,7 +244,7 @@ That estimate held. `axtun` is about twice the size of `axsocks`, and roughly ha
 | Usable at 1200 baud | yes | not really |
 | Risk of unintended transmission | none | high; the egress filter is why it is shippable |
 | Prior art | ax25d, AGW | kernel ax25_ip, AMPRNet |
-| Interop burden | none, it is a socket | four separate behaviours, two of which turned out differently from the reading, against one peer of at least four |
+| Interop burden | none, it is a socket | four behaviours claimed; one was wrong in our favour, one wrong against us, one dropped as out of scope, one confirmed |
 
 ## What I would do
 
