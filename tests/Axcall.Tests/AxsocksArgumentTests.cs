@@ -15,6 +15,7 @@ namespace Axcall.Tests;
 /// process-wide, so all of it lives in this one class; xunit runs a class's
 /// tests one at a time.
 /// </remarks>
+[Collection(ConfigFilesCollection.Name)]
 public sealed class AxsocksArgumentTests
 {
     private sealed class ConfigScope : IDisposable
