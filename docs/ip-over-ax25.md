@@ -14,7 +14,7 @@ Three specific things to be suspicious of until they are tested more widely:
 - ~~**The ARP protocol type we send** (0x0800) is read from the Linux kernel's generic ARP path, not observed.~~ **Measured, and it was wrong.** See below: every implementation sends 0x00CC and the kernel refuses anything else. Fixed.
 - **"VJ compression is a NOS thing"** rests on LinBPQ not implementing it. That says nothing about how common it is among the peers that do.
 
-A proper multi-implementation interop campaign is tracked in #53; it is a piece of work in its own right and not a footnote to this one.
+A proper multi-implementation interop campaign is tracked in #53. Run it with `scripts/peer-interop.sh`; it is deliberately not in CI, for reasons that are about capability rather than cost. See the peer suite note at the end.
 
 ## Where the evidence lives
 
@@ -240,6 +240,37 @@ It answers AX.25 ARP and ICMP with axtun's codec unchanged, first attempt, and u
 Two things worth knowing:
 
 - **It sends ARP protocol type 0x00CC**, agreeing with LinBPQ and the kernel.
-- **It supports `v = Virtual circuit (ip-over-ax25)` as a route mode**, alongside `d = Datagram`. That makes it the way to test the "accept VC as well as datagram" requirement on the air, which LinBPQ cannot do because its VC transmit is broken on 64-bit. Not yet done.
+- **It supports `v = Virtual circuit (ip-over-ax25)` as a route mode**, alongside `d = Datagram`, and gets it right. See below.
 
-Config traps: `LOCATOR` is mandatory or it exits 255, and an `ip route add` alongside an `arp add` for the same destination makes it transmit every reply **twice**, where the ARP entry alone derives the route correctly.
+Config notes: `LOCATOR` is mandatory or it exits 255. Forwarding to a third party needs an explicit `ip route add` as well as an `arp add`; the ARP entry alone is enough for XRouter to answer for its own address but not to route. And an `ip route add ... d` alongside an `arp add` makes it answer for **its own** address twice, which is worth knowing before writing a test that counts replies.
+
+## The virtual-circuit row, closed
+
+`axtun` accepts IP in connected-mode I-frames as well as in UI frames, because `ax25rtd.conf(5)` has a per-route mode of datagram or virtual connect and both are configured in the field. Until now that claim rested on a unit test and on reading LinBPQ's receive path. Nothing had ever sent us one: LinBPQ's virtual-circuit transmit is malformed on 64-bit, and the kernel leg needs a VM.
+
+XRouter sends it, and sends it correctly. Given a route in mode `v`, it opens an AX.25 session to the target station and delivers the packet inside an I-frame:
+
+```
+XR0TST>AXVCT ctl=0x00 pid=0xcc
+45000028 1234 0000 3f 01 ... 2c836309 -> 2c831401
+```
+
+Control 0x00 is an I-frame with N(S)=0, the PID is in the right place, the IP packet begins immediately after it, and the TTL has been decremented from 64 to 63 by a router doing its job. Compare LinBPQ's, four sections up, which puts four bytes of the previous UI header where the PID belongs.
+
+This is now a test: `XrouterInteropTests.Ip_Arrives_Inside_A_Connected_Session_When_The_Peers_Route_Says_Virtual_Circuit`. It answers XRouter's call with the production `Ax25Listener`, takes the frame off `FrameTraced`, and runs it through the same `Ax25Ip.TryGetPayload` the tool uses. The same fixture covers the datagram encapsulation and the ARP protocol type in the same run, so all three of XRouter's behaviours are checked against one node.
+
+**Both claims that rested on reading rather than observation are now settled.** One of them, the ARP protocol type, was wrong. This one was right.
+
+---
+
+# Running the peer suite
+
+```sh
+scripts/peer-interop.sh
+```
+
+XRouter runs in a container and is covered. The Linux kernel needs the `ax25-lab` VM, because `AF_AX25` is refused inside a non-init user namespace and every container here is one; that leg is manual, and its results are the kernel section above. JNOS is not yet written.
+
+**This suite is on demand, and the reason is capability rather than cost.** A peer suite CI could run in full does not exist, because the kernel leg cannot run on the runner at any price. Given that, running the containerised half nightly buys little: the peers change about once a year and our code changes daily.
+
+The failure mode of any on-demand suite is that nobody runs it and it rots, and the first person to try after six months cannot tell a regression from bit-rot in the harness. The mitigation here is that every run dates its findings in this document, so a stale result is visibly stale rather than silently assumed.

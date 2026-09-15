@@ -1,0 +1,30 @@
+# A two-node channel for the XRouter peer tests: one endpoint for the tests,
+# one for XRouter. 9600 for the same reason the LinBPQ harness uses it, which
+# is that a long frame at 1200 baud is two seconds of continuous audio and the
+# simulator's demodulator does not always survive that on a loaded machine.
+mixer_mode: fm_capture
+capture_db: 6.0
+collision_mode: silence
+
+nodes:
+  # The tests connect here.
+  - id: a
+    ports:
+      - id: vhf
+        modem:
+          mode: gfsk9600
+        kiss_port: 8100
+  # XRouter dials this one, through the socat pty bridge in its container.
+  - id: x
+    ports:
+      - id: vhf
+        modem:
+          mode: gfsk9600
+        kiss_port: 8103
+
+# 10 dB, matching the LinBPQ harness. At 0 the simulator prints "Audio input
+# level is too high. This may cause distortion and reduced decode performance"
+# on every frame, which is the modem telling you it is being overdriven.
+links:
+  - { from: a.vhf, to: x.vhf, loss_db: 10 }
+  - { from: x.vhf, to: a.vhf, loss_db: 10 }

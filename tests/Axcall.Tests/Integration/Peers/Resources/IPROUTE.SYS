@@ -1,0 +1,19 @@
+# IP routing for the peer interop tests.
+#
+# IPROUTE.SYS(8) route modes: d = datagram, v = virtual circuit
+# (ip-over-ax25). Two stations, one of each, so both encapsulations can be
+# exercised against the same node in the same run.
+#
+# Both need an explicit route as well as an ARP entry. An ARP entry alone is
+# enough for XRouter to answer for its own address, but not for it to forward
+# to a third party, which is what these tests ask it to do.
+
+# Datagram: forwarded in UI frames, PID 0xCC.
+arp add 44.131.20.1 ax25 AXTEST
+ip route add 44.131.20.1 0.0.0.0 1 d
+
+# Virtual circuit: XRouter opens an AX.25 session and sends the IP inside
+# I-frames. This is the encapsulation LinBPQ cannot be used to test, because
+# its virtual-circuit transmit is malformed on 64-bit.
+arp add 44.131.20.2 ax25 AXVCT
+ip route add 44.131.20.2 0.0.0.0 1 v
