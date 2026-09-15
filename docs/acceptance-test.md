@@ -173,15 +173,15 @@ axcall -m e -w 32 -p 128 -d radio CALL2
 Expect: `SABME` answered by `UA`, then an `XID` exchange in the trace, and each end reporting `mod-128`. Where an end offered something the negotiation then changed, it says so a round trip later. Here radio2 offered the default 256-byte paclen and the link settled on radio1's 128:
 
 ```
-axcall: connection from CALL1 (mod-128, window 32, paclen 256, SREJ off)
-axcall: negotiated with CALL1 (mod-128, window 32, paclen 128, SREJ off)
+axcall: connection from CALL1 (mod-128, window 32, paclen 256, SREJ on)
+axcall: negotiated with CALL1 (mod-128, window 32, paclen 128, SREJ on)
 ```
 
 radio1 offered what the link settled on, so it prints no second line.
 
 Type a line each way and check the trace: `ns=` should count up past 7 if you send enough, and the two ends should agree on the same window and paclen once negotiation has landed.
 
-*Proves:* v2.2 establishment and XID. The window and paclen are notifications of what each station can receive, so each settles on the lesser of the two offers: `-w 100` against a station offering 7 gets you 7, which is why this step sets the window at both ends. Two ends still reporting different numbers after the negotiated line is a bug. A peer that is modulo-8 only answers FRMR or DM and the dial falls back to `mod-8`, which is a pass for this step too, just not a test of it.
+*Proves:* v2.2 establishment and XID. The window and paclen are notifications of what each station can receive, so each settles on the lesser of the two offers: `-w 100` against a station offering 7 gets you 7, which is why this step sets the window at both ends. Two ends still reporting different numbers after the negotiated line is a bug. Expect `SREJ on` between two of these: a v2.2 link selects selective reject and both ends offer it. That is also why the window is worth keeping at or below 64 here, because SREJ holds it to half the modulus and a larger one reports itself as `window 100 (64 in effect)`. A peer that is modulo-8 only answers FRMR or DM and the dial falls back to `mod-8`, which is a pass for this step too, just not a test of it.
 
 **2.4 Keep the link up after input ends:**
 

@@ -87,8 +87,11 @@ end offers. k is a notification of what a station can receive, not a request, so
 a wide window has to be set at
 .I both
 ends: asking for 100 against a station offering 7 settles on 7. With SREJ
-negotiated the window is held to half the modulus, so 5 to 7 take effect only on
-a go\-back\-N link.
+negotiated the window is held to half the modulus: on modulo 8 that is 4, so 5 to
+7 take effect only on a go\-back\-N link, and on modulo 128 it is 64. A v2.2
+link negotiates SREJ with any peer that offers it, so a modulo\-128 window above
+64 usually runs at 64; the status line says so, as
+.BR "window 100 (64 in effect)" .
 .TP
 .BI \-m " s|e"
 The AX.25 mode to use:
@@ -104,8 +107,8 @@ parameters on the connect line are the ones this end offered. When the XID
 exchange settles on something else a round trip later, axcall says so:
 .IP
 .EX
-axcall: connected to GB7RDG (mod\-128, window 100, paclen 128, SREJ off)
-axcall: negotiated with GB7RDG (mod\-128, window 7, paclen 128, SREJ off)
+axcall: connected to GB7RDG (mod\-128, window 32, paclen 128, SREJ on)
+axcall: negotiated with GB7RDG (mod\-128, window 7, paclen 128, SREJ on)
 .EE
 .IP
 A modulo\-8 dial negotiates before it connects, so its connect line is already
