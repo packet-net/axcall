@@ -42,13 +42,14 @@ deb_version="${version/-/\~}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # One package per program, each named after its binary.
-packages=(axcall axsocks)
+packages=(axcall axsocks axinetd)
 
 # Example config a package ships in /usr/share/doc/<pkg>/examples. Both read
 # the ports file, so both carry that example; only axsocks knows about hosts.
 declare -A examples=(
   [axcall]="ports"
   [axsocks]="ports hosts"
+  [axinetd]="ports inetd"
 )
 
 pub="$root/artifacts/publish/$rid"

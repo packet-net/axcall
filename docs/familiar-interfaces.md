@@ -14,7 +14,7 @@ There are two answers to that, and they are not variations on one idea. They ser
 
 A is cheap, useful immediately, and limited to streams. B is a bigger piece of work, narrower in who wants it, and the only one that gives you `ping`, UDP, or a remote site's whole LAN.
 
-Tracked as #44 (Path A) and #45 (Path B). A.2 is built and shipped; see `axsocks(1)`.
+Tracked as #44 (Path A) and #45 (Path B). Path A is built: see `axsocks(1)` and `axinetd(1)`.
 
 ## Path A: the stream proxy
 
@@ -82,6 +82,8 @@ Three things worth recording, because none of them were visible from the design.
 
 ### A.3 Inbound: an inetd for AX.25
 
+**Built.** See `axinetd(1)`.
+
 The mirror image, and the thing `ax25d` used to be. An inbound AX.25 connect either runs a program with the session on its stdin and stdout, or forwards to a local TCP port.
 
 ```
@@ -89,7 +91,7 @@ The mirror image, and the thing `ax25d` used to be. An inbound AX.25 connect eit
 # callsign     port     action
 M0LTE-1        radio    exec   /usr/local/bin/bbs --user %r
 M0LTE-2        radio    tcp    127.0.0.1:8080
-M0LTE-9        *        exec   /bin/sh -c "uptime"
+M0LTE-9        -        exec   /usr/local/bin/uptime-report
 ```
 
 `%r` being the calling station, so the program knows who it is talking to. With `exec`, writing a packet service becomes writing a program that reads stdin and writes stdout, in any language:
@@ -103,6 +105,16 @@ for line in sys.stdin:
 ```
 
 That is the whole of the developer experience. No SDK, no protocol, no C#.
+
+### What building A.3 turned up
+
+**There is no authentication in AX.25, and an inetd is where that stops being abstract.** A callsign in a received frame is a claim, not a credential. `%r` and `AX25_CALLER` are a hint about who is calling and never proof, and the man page says so rather than leaving someone to assume otherwise. The same reasoning is why `axinetd` refuses to run as root: it runs programs chosen by a config file whenever a stranger calls in, and it cannot drop privileges before doing so, so one careless line would be a root shell for anyone with a radio. `--allow-root` exists for people who have thought about it.
+
+**A program's standard error belongs to the operator, not to the caller.** Sending it down the link would leak paths and stack traces to a stranger and interleave them with whatever the program meant to say, so it goes to the log.
+
+**A call must not be able to leave a process behind.** When the link closes, the program's stdin is closed, and anything still running ten seconds later is killed. Without that, a program that ignores EOF accumulates one process per call until the machine gives up.
+
+**The exec form needs an absolute path.** A bare name would be resolved against whatever `PATH` the service inherited, which is not a thing to leave to chance when the trigger is a remote caller.
 
 ### What Path A costs and what it cannot do
 

@@ -92,7 +92,7 @@ jobs:
           # Both tools publish into one directory. Each is its own binary, and
           # they share the native library neither can link in, so it is carried
           # once rather than per tool.
-          for proj in src/Axcall/Axcall.csproj src/Axsocks/Axsocks.csproj; do
+          for proj in src/Axcall/Axcall.csproj src/Axsocks/Axsocks.csproj src/Axinetd/Axinetd.csproj; do
             dotnet publish "$proj" -c Release -r "${{ matrix.rid }}" --self-contained \
               -p:DebugType=none -p:DebugSymbols=false \
               -p:Version="${{ steps.tag.outputs.version }}" \
@@ -118,7 +118,7 @@ jobs:
             # Windows.
             dir="axcall-$TAG-$RID"
             rm -rf stage && mkdir -p "stage/$dir"
-            cp "$PUB/axcall.exe" "$PUB/axsocks.exe" "stage/$dir/"
+            cp "$PUB/axcall.exe" "$PUB/axsocks.exe" "$PUB/axinetd.exe" "stage/$dir/"
             # Compress-Archive rather than 7z: it is part of PowerShell, so it
             # is there whatever the runner image ships.
             powershell -NoProfile -Command "Compress-Archive -Path 'stage/$dir' -DestinationPath 'dist/$dir.zip'"
@@ -139,7 +139,7 @@ jobs:
           # shape and nobody has to wonder why theirs is different.
           dir="axcall-$TAG-$RID"
           rm -rf stage && mkdir -p "stage/$dir"
-          for tool in axcall axsocks; do
+          for tool in axcall axsocks axinetd; do
             cp "$PUB/$tool" "stage/$dir/$tool"
             chmod 0755 "stage/$dir/$tool"
           done
@@ -155,7 +155,8 @@ jobs:
           {
             printf 'axcall %s (%s)\n\n' "$TAG" "$RID"
             printf 'axcall   dial a station and talk to it\n'
-            printf 'axsocks  a SOCKS5 proxy onto the same port, for everything else\n\n'
+            printf 'axsocks  a SOCKS5 proxy onto the same port, for calling out\n'
+            printf 'axinetd  run a program for whoever calls in\n\n'
             printf 'Keep these files together. They load their serial-port support from a\n'
             printf 'library in this directory, and alone they cannot open a serial port.\n\n'
             printf 'Run them from here, or copy the whole directory somewhere permanent and\n'
@@ -214,7 +215,8 @@ jobs:
         run: |
           scripts/deb-install-smoke.sh \
             artifacts/axcall_*_${{ matrix.deb }}.deb \
-            artifacts/axsocks_*_${{ matrix.deb }}.deb
+            artifacts/axsocks_*_${{ matrix.deb }}.deb \
+            artifacts/axinetd_*_${{ matrix.deb }}.deb
 
       - name: Collect the .debs
         if: matrix.deb != ''
@@ -248,11 +250,11 @@ jobs:
           mkdir -p dist
           find staged -type f -exec cp {} dist/ \;
           ls -l dist
-          # Five tarballs, one Windows .zip, and two .debs for each of three
+          # Five tarballs, one Windows .zip, and three .debs for each of three
           # architectures: one package per program. Fail loudly rather than
           # publishing a release quietly missing a platform or a tool.
           count=$(find dist -type f | wc -l)
-          [ "$count" -eq 12 ] || { echo "expected 12 artifacts, got $count"; exit 1; }
+          [ "$count" -eq 15 ] || { echo "expected 15 artifacts, got $count"; exit 1; }
 
       - name: Create release
         if: github.event.inputs.dry_run != 'true'

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\Tool.props" />
+
+  <PropertyGroup>
+    <AssemblyName>axinetd</AssemblyName>
+    <RootNamespace>Axinetd</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Axcall.Tests" />
+  </ItemGroup>
+
+</Project>

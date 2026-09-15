@@ -198,7 +198,8 @@ internal sealed class ProxyServer(
             Write($"{peer}: connected to {target} ({SessionRelay.DescribeLink(session.Context)})");
             await Socks5.WriteReplyAsync(stream, Socks5Reply.Succeeded, ct).ConfigureAwait(false);
 
-            var outcome = await new SocketBridge(session, subscription, stream, ct).RunAsync().ConfigureAwait(false);
+            var outcome = await new SessionStreamBridge(session, subscription, stream, stream, ct)
+                .RunAsync().ConfigureAwait(false);
             Write($"{peer}: {target} closed, {outcome}");
         }
         finally

@@ -1,0 +1,26 @@
+Package: axinetd
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Tom Fanning <tom@m0lte.uk>
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Section: hamradio
+Priority: optional
+Homepage: https://github.com/packet-net/axcall
+Description: run a program for inbound AX.25 calls
+ Answers inbound AX.25 calls. Each call either runs a program with the session
+ on its standard input and output, or is forwarded to a local TCP service, so
+ writing a packet service becomes writing a program that reads stdin. This is
+ what ax25d did, without the kernel stack it depended on.
+ .
+ The callsign called is the whole address and so the whole routing decision;
+ there are no port numbers on the AX.25 side. The calling station is passed to
+ the program as %r in its arguments and as AX25_CALLER in its environment.
+ .
+ Carries its own AX.25 v2.2 data link and speaks KISS to a TNC over a serial
+ port or over TCP, so it needs no kernel support, no kissattach and no
+ privilege. It declines to run as root, because it runs programs on behalf of
+ whoever calls in and cannot drop privileges first.
+ .
+ Self-contained: bundles its own .NET runtime, so no system runtime is
+ required.

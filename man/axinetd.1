@@ -1,0 +1,210 @@
+.TH AXINETD 1 "15 September 2026" "axcall" "Linux Programmer's Manual"
+.SH NAME
+axinetd \- run a program for inbound AX.25 calls
+.SH SYNOPSIS
+.B axinetd
+.RI [ options ]
+.I port
+.SH DESCRIPTION
+.B axinetd
+answers inbound AX.25 calls. Each call either runs a program with the session
+on its standard input and output, or is forwarded to a local TCP service.
+.PP
+That first form is the point of it. Writing a packet service becomes writing a
+program that reads standard input and writes standard output, in any language,
+with no library to link and no protocol to learn:
+.PP
+.RS
+.nf
+#!/usr/bin/env python3
+import sys
+print("Hello from a three line BBS.\\r", end="", flush=True)
+for line in sys.stdin:
+    print(f"You said: {line.strip()}\\r", end="", flush=True)
+.fi
+.RE
+.PP
+This is what
+.B ax25d
+did, without the kernel AX.25 stack it depended on.
+.B axinetd
+carries its own AX.25 v2.2 data link and speaks KISS to a TNC over a serial
+port or over TCP, exactly as
+.BR axcall (1)
+does.
+.SH OPTIONS
+.TP
+.I port
+The AX.25 port to answer on: a name from the ports file, a device path, or
+.IR host : port
+for a KISS-over-TCP modem. See
+.BR axcall (1)
+for the ports file.
+.TP
+.BI \-c " file" "\fR, \fP" \-\-config " file"
+Read this rules file instead of searching the usual paths.
+.TP
+.BI \-\-serial " device" [: baud ]
+.TQ
+.BI \-\-tcp " host" : port
+Name the transport directly instead of giving a
+.IR port .
+.TP
+.BI \-\-baud " rate"
+Serial baud rate. Overrides a rate from the ports file. The default is 57600.
+.TP
+.BI \-p " bytes" "\fR, \fP" \-\-paclen " bytes"
+Maximum information field per frame (N1), 1 to 256.
+.TP
+.BI \-w " frames" "\fR, \fP" \-\-window " frames"
+Send window (k), 1 to 7, or 1 to 63 with
+.BR \-\-mod128 .
+.TP
+.B \-\-mod128
+Prefer AX.25 v2.2 (SABME, modulo 128).
+.TP
+.B \-\-no\-xid
+Skip the pre-connect XID exchange that negotiates selective reject.
+.TP
+.BI \-\-keepalive " seconds"
+T3, the inactive-link timer. The default is 300.
+.TP
+.BI \-\-txdelay " ms"
+.TQ
+.BI \-\-persist " 0-255"
+.TQ
+.BI \-\-slottime " ms"
+.TQ
+.BI \-\-txtail " ms"
+KISS channel-access parameters, as
+.BR kissparms (8)
+set them per interface. Timers are in milliseconds and must be a multiple of
+10, the KISS unit.
+.TP
+.B \-\-allow\-root
+Run as root anyway. See SECURITY.
+.TP
+.B \-d
+Trace every frame, sent and received, to standard error.
+.TP
+.BR \-q ", " \-\-quiet
+Log errors only, rather than a line per call.
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the version, and the versions of the libraries built in.
+.SH RULES FILE
+.RS
+.nf
+# callsign   port    action
+M0LTE\-1      radio   exec  /usr/local/bin/bbs \-\-user %r
+M0LTE\-2      radio   tcp   127.0.0.1:8080
+.fi
+.RE
+.PP
+Read from
+.I /etc/axcall/inetd
+and then
+.IR ~/.config/axcall/inetd ,
+the second replacing same-callsign entries in the first, or from the single
+file named by
+.BR \-c " or " $AXCALL_INETD .
+.PP
+The callsign called is the whole address, so it is also the whole routing
+decision. There are no port numbers on the AX.25 side; give each service its
+own SSID.
+.PP
+The port column names a port from the ports file and says which radio the rule
+is for. A
+.RB ` \- '
+means whichever port this instance was started on. Rules for other ports are
+ignored, so one file can describe every service on a machine.
+.TP
+.B exec
+Runs a program with the session on its standard input and output. The path must
+be absolute: a bare name would be resolved against whatever
+.B PATH
+the service inherited, which is not a thing to leave to chance when the trigger
+is a stranger calling in.
+.IP
+.B %r
+in an argument is replaced with the calling station, which is also passed as
+.B AX25_CALLER
+in the environment.
+.IP
+Arguments are split on whitespace and there is no quoting. An argument needing
+a space wants a wrapper script, which is clearer than a config line that has
+grown its own shell.
+.IP
+The program's standard error goes to the log, not down the link. Sending it to
+the caller would leak paths and stack traces to a stranger and interleave them
+with whatever the program meant to say.
+.IP
+When the link closes, the program's standard input is closed. A program that
+has not exited ten seconds later is killed, because an inbound call must not be
+able to leave a process behind.
+.TP
+.B tcp
+Hands the call to a local service instead. The service gets a byte stream and
+no idea who is on the other end.
+.SH SECURITY
+.B axinetd
+runs programs chosen by a config file whenever a stranger calls in, and it has
+no way to drop privileges before doing so. As root, one careless line is a root
+shell for anyone with a radio, so it refuses to start as root unless
+.B \-\-allow\-root
+is given. Run it as a dedicated unprivileged user.
+.PP
+There is no authentication in AX.25. A callsign in a received frame is a claim,
+not a credential, and anyone can send any callsign they like. Treat
+.B %r
+and
+.B AX25_CALLER
+as a hint about who is calling, never as proof.
+.PP
+One call at a time per station. A second call from a station already in session
+is ignored rather than given a second program, because both would be writing
+down one link.
+.SH EXIT STATUS
+.TP
+.B 0
+Stopped cleanly.
+.TP
+.B 1
+Something unexpected went wrong.
+.TP
+.B 2
+The command line or the rules file was wrong, or there was nothing to answer
+for on this port.
+.TP
+.B 3
+The modem could not be opened.
+.SH FILES
+.TP
+.I /etc/axcall/inetd
+System rules file.
+.TP
+.I ~/.config/axcall/inetd
+Per-user rules file, read second.
+.TP
+.I /etc/axcall/ports
+System ports file, shared with
+.BR axcall (1).
+.SH ENVIRONMENT
+.TP
+.B AXCALL_INETD
+If set, the only rules file consulted.
+.TP
+.B AXCALL_PORTS
+If set, the only ports file consulted.
+.SH SEE ALSO
+.BR axcall (1),
+.BR axsocks (1)
+.PP
+Project home:
+.UR https://github.com/packet-net/axcall
+.UE
+.SH AUTHOR
+Tom Fanning M0LTE.
