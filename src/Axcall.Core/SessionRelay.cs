@@ -133,9 +133,6 @@ public sealed class SessionRelay : IAsyncDisposable
     /// <summary>Exit code when <see cref="SessionRelayOptions.IdleTimeout"/> closed the link.</summary>
     public const int IdleTimeoutExitCode = 5;
 
-    /// <summary>How long to wait for the disconnect handshake before giving up and exiting anyway.</summary>
-    private static readonly TimeSpan DisconnectHandshakeTimeout = TimeSpan.FromSeconds(15);
-
     /// <summary>Stands in for the idle watcher when no idle timeout was asked for.</summary>
     private static readonly Task<bool> NeverIdle = new TaskCompletionSource<bool>().Task;
 
@@ -333,22 +330,10 @@ public sealed class SessionRelay : IAsyncDisposable
                 // one window. Ctrl-C is the opposite and hangs up at once.
                 if (reason is StopReason.InputEnded)
                 {
-                    await DrainAsync(session, disconnectTcs.Task, cancelTcs.Task).ConfigureAwait(false);
+                    await SessionTeardown.DrainAsync(session, disconnectTcs.Task, cancelTcs.Task).ConfigureAwait(false);
                 }
 
-                // Hang up properly and wait for the handshake, rather than
-                // dropping the socket and leaving the peer to time out, which
-                // is what the kernel version did on its idle timeout.
-                session.PostEvent(new DlDisconnectRequest());
-                using var discCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                discCts.CancelAfter(DisconnectHandshakeTimeout);
-                try
-                {
-                    await disconnectTcs.Task.WaitAsync(discCts.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                }
+                await SessionTeardown.HangUpAsync(session, disconnectTcs.Task, ct).ConfigureAwait(false);
             }
 
             WriteStatus("disconnected");
@@ -381,43 +366,6 @@ public sealed class SessionRelay : IAsyncDisposable
         // Cancelled, or the peer hung up: either way we are finished, and a
         // cancelled relay still hangs up rather than dropping the link.
         return second == cancelTask ? StopReason.Cancelled : StopReason.RemoteDisconnected;
-    }
-
-    /// <summary>
-    /// Wait until everything we have been given has actually been sent and
-    /// acknowledged: nothing queued, and every I-frame sent is acked (V(A) has
-    /// caught up with V(S)).
-    /// </summary>
-    /// <remarks>
-    /// No timer bounds this, deliberately. A slow link is slow, and 4 kB at
-    /// 1200 baud is a legitimate half-minute; any fixed deadline would be wrong
-    /// for some real link. What bounds it instead is the link itself: if the
-    /// peer stops acknowledging, the session exhausts its N2 retry budget and
-    /// reports a disconnect, which is one of the things this waits on.
-    /// </remarks>
-    private static async Task DrainAsync(Ax25Session session, Task disconnectTask, Task cancelTask)
-    {
-        while (true)
-        {
-            bool queued;
-            bool unacknowledged;
-            lock (session.Context.IFrameQueue)
-            {
-                queued = session.Context.IFrameQueue.Count > 0;
-                unacknowledged = session.Context.VA != session.Context.VS;
-            }
-
-            if (!queued && !unacknowledged)
-                return;
-
-            if (disconnectTask.IsCompleted || cancelTask.IsCompleted)
-                return;
-
-            await Task.WhenAny(
-                Task.Delay(TimeSpan.FromMilliseconds(50)),
-                disconnectTask,
-                cancelTask).ConfigureAwait(false);
-        }
     }
 
     /// <summary>

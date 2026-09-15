@@ -88,11 +88,17 @@ jobs:
           set -euo pipefail
           # How to publish is the csproj's business: NativeAOT everywhere with a
           # native runner, trimmed single-file plus R2R for armhf.
-          dotnet publish src/Axcall/Axcall.csproj -c Release -r "${{ matrix.rid }}" --self-contained \
-            -p:DebugType=none -p:DebugSymbols=false \
-            -p:Version="${{ steps.tag.outputs.version }}" \
-            -p:InformationalVersion="${{ steps.tag.outputs.version }}" \
-            -o "publish/${{ matrix.rid }}"
+          #
+          # Both tools publish into one directory. Each is its own binary, and
+          # they share the native library neither can link in, so it is carried
+          # once rather than per tool.
+          for proj in src/Axcall/Axcall.csproj src/Axsocks/Axsocks.csproj; do
+            dotnet publish "$proj" -c Release -r "${{ matrix.rid }}" --self-contained \
+              -p:DebugType=none -p:DebugSymbols=false \
+              -p:Version="${{ steps.tag.outputs.version }}" \
+              -p:InformationalVersion="${{ steps.tag.outputs.version }}" \
+              -o "publish/${{ matrix.rid }}"
+          done
 
       - name: Stage the download
         shell: bash
@@ -107,7 +113,15 @@ jobs:
           # there, so the executable really is the whole program and there is
           # nothing for an archive to hold that a single file cannot.
           if [ "$RID" = "win-x64" ]; then
-            cp "$PUB/axcall.exe" "dist/axcall-$TAG-$RID.exe"
+            # One archive, because there is more than one tool now, but no
+            # companion library: System.IO.Ports calls Win32 directly on
+            # Windows.
+            dir="axcall-$TAG-$RID"
+            rm -rf stage && mkdir -p "stage/$dir"
+            cp "$PUB/axcall.exe" "$PUB/axsocks.exe" "stage/$dir/"
+            # Compress-Archive rather than 7z: it is part of PowerShell, so it
+            # is there whatever the runner image ships.
+            powershell -NoProfile -Command "Compress-Archive -Path 'stage/$dir' -DestinationPath 'dist/$dir.zip'"
             ls -l dist
             exit 0
           fi
@@ -125,8 +139,10 @@ jobs:
           # shape and nobody has to wonder why theirs is different.
           dir="axcall-$TAG-$RID"
           rm -rf stage && mkdir -p "stage/$dir"
-          cp "$PUB/axcall" "stage/$dir/axcall"
-          chmod 0755 "stage/$dir/axcall"
+          for tool in axcall axsocks; do
+            cp "$PUB/$tool" "stage/$dir/$tool"
+            chmod 0755 "stage/$dir/$tool"
+          done
 
           shopt -s nullglob
           for lib in "$PUB"/*.so "$PUB"/*.dylib; do
@@ -138,10 +154,12 @@ jobs:
 
           {
             printf 'axcall %s (%s)\n\n' "$TAG" "$RID"
-            printf 'Keep these files together. axcall loads its serial-port support from a\n'
-            printf 'library in this directory, and on its own it cannot open a serial port.\n\n'
-            printf 'Run it from here, or copy the whole directory somewhere permanent and put\n'
-            printf 'that directory on your PATH.\n\n'
+            printf 'axcall   dial a station and talk to it\n'
+            printf 'axsocks  a SOCKS5 proxy onto the same port, for everything else\n\n'
+            printf 'Keep these files together. They load their serial-port support from a\n'
+            printf 'library in this directory, and alone they cannot open a serial port.\n\n'
+            printf 'Run them from here, or copy the whole directory somewhere permanent and\n'
+            printf 'put that directory on your PATH.\n\n'
             printf 'On Debian and Ubuntu, install the .deb instead. It puts axcall on your PATH\n'
             printf 'properly and carries the man page.\n\n'
             printf 'https://github.com/packet-net/axcall\n'
@@ -226,7 +244,7 @@ jobs:
           mkdir -p dist
           find staged -type f -exec cp {} dist/ \;
           ls -l dist
-          # Five tarballs, one Windows .exe and three .debs. Fail loudly
+          # Five tarballs, one Windows .zip and three .debs. Fail loudly
           # rather than publishing a release quietly missing a platform.
           count=$(find dist -type f | wc -l)
           [ "$count" -eq 9 ] || { echo "expected 9 artifacts, got $count"; exit 1; }

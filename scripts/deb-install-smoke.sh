@@ -65,18 +65,22 @@ apt-get install -y -qq "./$DEB_BASE" || fail "apt install of the .deb"
 
 echo "--- 2. package state and payload"
 dpkg -s axcall | grep -q "Status: install ok installed" || fail "dpkg state"
-[ -x /usr/bin/axcall ] || fail "no /usr/bin/axcall"
-[ -L /usr/bin/axcall ] || fail "/usr/bin/axcall is not a symlink into /usr/lib/axcall"
-[ -x /usr/lib/axcall/axcall ] || fail "no /usr/lib/axcall/axcall"
-[ -f /usr/share/man/man1/axcall.1.gz ] || fail "no man page"
-gzip -t /usr/share/man/man1/axcall.1.gz || fail "man page is not valid gzip"
+for tool in axcall axsocks; do
+  [ -x "/usr/bin/$tool" ] || fail "no /usr/bin/$tool"
+  [ -L "/usr/bin/$tool" ] || fail "/usr/bin/$tool is not a symlink into /usr/lib/axcall"
+  [ -x "/usr/lib/axcall/$tool" ] || fail "no /usr/lib/axcall/$tool"
+  [ -f "/usr/share/man/man1/$tool.1.gz" ] || fail "no man page for $tool"
+  gzip -t "/usr/share/man/man1/$tool.1.gz" || fail "$tool man page is not valid gzip"
+done
 [ -f /usr/share/doc/axcall/copyright ] || fail "no copyright"
 [ -f /usr/share/doc/axcall/examples/ports ] || fail "no example ports file"
+[ -f /usr/share/doc/axcall/examples/hosts ] || fail "no example hosts file"
 [ -e /etc/axcall/ports ] && fail "shipped an /etc conffile (it would prompt on upgrade)"
 
 echo "--- 3. the binary runs on a bare base"
 axcall --version || fail "axcall --version did not run (missing native dependency?)"
 axcall --version | grep -q "^axcall " || fail "unexpected --version output"
+axsocks --version | grep -q "^axsocks " || fail "axsocks --version did not run"
 
 echo "--- 4. it behaves like axcall"
 # No ports file: a bare name is a usage error (exit 2), not a crash.
@@ -107,6 +111,18 @@ case "$serial_out" in
   *"/dev/ttyUSB0"*) ;;
   *) echo "$serial_out"; fail "expected a complaint about the missing device" ;;
 esac
+
+# axsocks resolves the same ports file and opens the same modem, so it fails
+# the same way for the same reason and no further.
+set +e
+socks_out=$(axsocks radio 2>&1); socks_rc=$?
+set -e
+[ "$socks_rc" -eq 3 ] || { echo "$socks_out"; fail "axsocks: expected exit 3, got $socks_rc"; }
+case "$socks_out" in
+  *"Unable to load shared library"*)
+    echo "$socks_out"; fail "axsocks is missing its native serial library" ;;
+esac
+
 rm -rf /etc/axcall
 
 echo "--- 5. takes over /usr/bin/axcall from ax25-apps"

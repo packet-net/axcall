@@ -14,7 +14,7 @@ There are two answers to that, and they are not variations on one idea. They ser
 
 A is cheap, useful immediately, and limited to streams. B is a bigger piece of work, narrower in who wants it, and the only one that gives you `ping`, UDP, or a remote site's whole LAN.
 
-Tracked as #44 (Path A) and #45 (Path B).
+Tracked as #44 (Path A) and #45 (Path B). A.2 is built and shipped; see `axsocks(1)`.
 
 ## Path A: the stream proxy
 
@@ -38,13 +38,15 @@ Nothing to build. This works now.
 
 ### A.2 Many targets: a SOCKS5 proxy
 
+**Built.** See `axsocks(1)`.
+
 The limitation above is that the target is fixed on the command line. SOCKS5 removes that, and SOCKS is supported by curl, ssh, browsers, and every HTTP library in wide use.
 
 ```sh
-axsocks --listen 1080 --serial /dev/ttyUSB0:57600 -s M0LTE-7
+axsocks --serial /dev/ttyUSB0:57600 -s M0LTE-7 --listen 1080
 ```
 
-The proxy accepts a SOCKS5 CONNECT, reads the requested hostname, maps it to a callsign, opens an AX.25 session, and relays bytes. The mapping wants to be the ports file, extended:
+The proxy accepts a SOCKS5 CONNECT, reads the requested hostname, maps it to a callsign, opens an AX.25 session, and relays bytes. The mapping is a hosts file alongside the ports file:
 
 ```
 # /etc/axcall/hosts
@@ -67,6 +69,16 @@ requests.get("http://gb7rdg/status",
 ```
 
 The `socks5h` and `-X 5 -x` forms matter: they push hostname resolution to the proxy, which is what lets a name become a callsign rather than being resolved by DNS first.
+
+### What building A.2 turned up
+
+Three things worth recording, because none of them were visible from the design.
+
+**One session per pair of callsigns.** The library caches a session per (local, remote) callsign pair and hands the same one back for a second connect to the same peer. Two proxied connections to one station would therefore share a link and interleave their bytes. `axsocks` refuses the second rather than corrupting both, which makes the "do not point a browser at this" warning below a hard limit rather than advice. The way out, if it is ever wanted, is the multi-callsign origination the node already uses: a pool of local SSIDs would give each conversation its own session key.
+
+**The banner race is real.** A station that greets the caller can have bytes on the way before the dial has returned to the caller, so subscribing to a session after connecting can drop the first frame. The subscription is armed before the dial instead, keyed on the callsign rather than on the session object, which is also what stops a reused session handing a new conversation the leftovers of the last one.
+
+**The flush-before-hangup rule transfers unchanged.** Closing the client end of a proxied connection means "I have said everything", not "drop it now", exactly as end of input does for the terminal. Without the drain, a 4 kB transfer arrives as 1 kB: one window, and the rest discarded at the disconnect. That is the same bug the terminal had once, so the drain now lives in one place and both callers use it.
 
 ### A.3 Inbound: an inetd for AX.25
 

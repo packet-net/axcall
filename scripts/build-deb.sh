@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# build-deb.sh - publish axcall self-contained for one RID and package it as a
-# Debian .deb. Used by release.yml, and runnable by hand for a local check.
+# build-deb.sh - publish the axcall tools self-contained for one RID and
+# package them as a Debian .deb. Used by release.yml, and runnable by hand for
+# a local check.
 #
 #   scripts/build-deb.sh <rid> <version>
 #   e.g. scripts/build-deb.sh linux-arm64 0.3.0
@@ -35,7 +36,9 @@ esac
 deb_version="${version/-/\~}"
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-proj="$root/src/Axcall/Axcall.csproj"
+# Every tool in the package, each its own binary. They share a publish
+# directory, so the native library they both need is carried once.
+tools=(axcall axsocks)
 pub="$root/artifacts/publish/$rid"
 stage="$root/artifacts/deb/$rid"
 out="$root/artifacts/axcall_${deb_version}_${arch}.deb"
@@ -59,18 +62,23 @@ fi
 # and it is the one that does not use AOT.
 echo "==> publish $rid (strategy from the csproj, invariant globalization)"
 rm -rf "$pub"
-dotnet publish "$proj" -c Release -r "$rid" --self-contained true \
-  -p:DebugType=none -p:DebugSymbols=false \
-  -p:Version="$version" -p:InformationalVersion="$version" \
-  -v minimal -o "$pub"
-
-[ -f "$pub/axcall" ] || { echo "publish produced no axcall binary" >&2; exit 1; }
+for tool in "${tools[@]}"; do
+  proj="$root/src/${tool^}/${tool^}.csproj"
+  [ -f "$proj" ] || { echo "no project for $tool at $proj" >&2; exit 1; }
+  dotnet publish "$proj" -c Release -r "$rid" --self-contained true \
+    -p:DebugType=none -p:DebugSymbols=false \
+    -p:Version="$version" -p:InformationalVersion="$version" \
+    -v minimal -o "$pub"
+done
 
 # Guard the architecture: a .deb carrying a binary for the wrong machine would
 # install cleanly and then fail to exec, which is a miserable way to find out.
 want_arch="$(case "$arch" in amd64) echo x86-64 ;; arm64) echo aarch64 ;; armhf) echo ARM ;; esac)"
-file "$pub/axcall" | grep -q "$want_arch" || {
-  echo "published binary is not $want_arch: $(file -b "$pub/axcall")" >&2; exit 1; }
+for tool in "${tools[@]}"; do
+  [ -f "$pub/$tool" ] || { echo "publish produced no $tool binary" >&2; exit 1; }
+  file "$pub/$tool" | grep -q "$want_arch" || {
+    echo "published $tool is not $want_arch: $(file -b "$pub/$tool")" >&2; exit 1; }
+done
 
 echo "==> stage .deb tree for $arch"
 rm -rf "$stage"
@@ -96,8 +104,10 @@ install -d "$stage/usr/bin" \
 # directory under /usr/lib is also what Debian policy asks for; the alternative,
 # dropping a Microsoft-named .so straight into the multiarch directory, is a
 # collision waiting for the second AOT .NET package on the system.
-install -m 0755 "$pub/axcall" "$stage/usr/lib/axcall/axcall"
-ln -s ../lib/axcall/axcall "$stage/usr/bin/axcall"
+for tool in "${tools[@]}"; do
+  install -m 0755 "$pub/$tool" "$stage/usr/lib/axcall/$tool"
+  ln -s "../lib/axcall/$tool" "$stage/usr/bin/$tool"
+done
 
 # Whatever native libraries the publish could not link in. AOT builds have at
 # least libSystem.IO.Ports.Native.so; the armhf single-file build has none,
@@ -111,11 +121,14 @@ for lib in "${native_libs[@]}"; do
 done
 
 install -m 0644 "$root/packaging/ports.example" "$stage/usr/share/doc/axcall/examples/ports"
+install -m 0644 "$root/packaging/hosts.example" "$stage/usr/share/doc/axcall/examples/hosts"
 
 # Man pages must be gzipped with no timestamp (-n), or the .deb is not
 # reproducible and lintian complains.
-gzip -9nc "$root/man/axcall.1" > "$stage/usr/share/man/man1/axcall.1.gz"
-chmod 0644 "$stage/usr/share/man/man1/axcall.1.gz"
+for tool in "${tools[@]}"; do
+  gzip -9nc "$root/man/$tool.1" > "$stage/usr/share/man/man1/$tool.1.gz"
+  chmod 0644 "$stage/usr/share/man/man1/$tool.1.gz"
+done
 
 # Debian wants a machine-readable copyright and a changelog. The changelog is
 # generated rather than tracked: the GitHub Release notes are the real record,
@@ -170,7 +183,7 @@ while read -r soname; do
   pkg="${soname_to_pkg[$soname]:-}"
   [ -n "$pkg" ] || { echo "unmapped shared library dependency: $soname" >&2; exit 1; }
   case ",$depends," in *",$pkg,"*) ;; *) depends="${depends:+$depends,}$pkg" ;; esac
-done < <(objdump -p "$pub/axcall" "${native_libs[@]}" | awk '/NEEDED/ {print $2}' | sort -u)
+done < <(objdump -p "${tools[@]/#/$pub/}" "${native_libs[@]}" | awk '/NEEDED/ {print $2}' | sort -u)
 depends="${depends//,/, }"
 echo "==> depends: $depends"
 

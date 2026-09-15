@@ -20,6 +20,11 @@ Description: connected-mode AX.25 terminal over KISS
  kernel support, no kissattach, no axparms and no privilege. The command line
  is deliberately the old one, so existing scripts mostly carry over.
  .
+ Also ships axsocks, a SOCKS5 proxy onto the same port. Every connection it
+ accepts becomes an AX.25 session to a callsign, so curl, ssh and any HTTP
+ library can reach a packet station over an ordinary socket without knowing
+ what AX.25 is.
+ .
  Self-contained: bundles its own .NET runtime, so no system runtime is
  required. Replaces ax25-apps, which owns the same /usr/bin/axcall; the rest
  of that package (axlisten, ax25ipd, ax25rtd, ax25mond) depends on the

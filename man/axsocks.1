@@ -1,0 +1,211 @@
+.TH AXSOCKS 1 "15 September 2026" "axcall" "Linux Programmer's Manual"
+.SH NAME
+axsocks \- SOCKS5 proxy onto an AX.25 port
+.SH SYNOPSIS
+.B axsocks
+.RI [ options ]
+.I port
+.SH DESCRIPTION
+.B axsocks
+puts a SOCKS5 proxy in front of one AX.25 port. Every connection it accepts
+becomes a connected-mode AX.25 session to a callsign, and the bytes pass
+through untouched in both directions.
+.PP
+The point is that nothing downstream has to know what AX.25 is. SOCKS5 is
+spoken by
+.BR curl (1),
+.BR ssh (1),
+browsers and every HTTP library in wide use, so a program in any language can
+reach a packet station through an ordinary socket.
+.PP
+The mapping is exact rather than approximate. A connected-mode AX.25 session is
+reliable, ordered and flow-controlled, and so is a TCP connection, so there is
+nothing to reconcile between them: the proxy opens a link, copies bytes, and
+closes the link when the bytes run out.
+.PP
+It needs no kernel support, no
+.BR kissattach (8)
+and no privilege, because it carries its own AX.25 v2.2 data link and speaks
+KISS to a TNC over a serial port or over TCP, exactly as
+.BR axcall (1)
+does.
+.SH OPTIONS
+.TP
+.I port
+The AX.25 port to call out over: a name from the ports file, a device path, or
+.IR host : port
+for a KISS-over-TCP modem. See
+.BR axcall (1)
+for the ports file.
+.TP
+.BI \-s " callsign" "\fR, \fP" \-\-mycall " callsign"
+The callsign to call out as. Required unless the ports file entry supplies one.
+.TP
+.BI \-\-listen " spec"
+Where to accept SOCKS5 connections: a bare port, or
+.IR address : port .
+The default is
+.BR 127.0.0.1:1080 ,
+and the address half of that default is deliberate. Binding this to an address
+the rest of the network can reach hands anyone who can open the port the use of
+your callsign and your transmitter.
+.TP
+.BI \-\-hosts " file"
+Read this hosts file instead of searching the usual paths.
+.TP
+.BI \-\-serial " device" [: baud ]
+.TQ
+.BI \-\-tcp " host" : port
+Name the transport directly instead of giving a
+.IR port .
+.TP
+.BI \-\-baud " rate"
+Serial baud rate. Overrides a rate from the ports file. The default is 57600.
+.TP
+.BI \-p " bytes" "\fR, \fP" \-\-paclen " bytes"
+Maximum information field per frame (N1), 1 to 256.
+.TP
+.BI \-w " frames" "\fR, \fP" \-\-window " frames"
+Send window (k), 1 to 7, or 1 to 63 with
+.BR \-\-mod128 .
+.TP
+.B \-\-mod128
+Prefer AX.25 v2.2 (SABME, modulo 128) on each call.
+.TP
+.B \-\-no\-xid
+Skip the pre-connect XID exchange that negotiates selective reject.
+.TP
+.BI \-\-keepalive " seconds"
+T3, the inactive-link timer. The default is 300.
+.TP
+.BI \-\-txdelay " ms"
+.TQ
+.BI \-\-persist " 0-255"
+.TQ
+.BI \-\-slottime " ms"
+.TQ
+.BI \-\-txtail " ms"
+KISS channel-access parameters, as
+.BR kissparms (8)
+set them per interface. Timers are in milliseconds and must be a multiple of
+10, the KISS unit.
+.TP
+.B \-d
+Trace every frame, sent and received, to standard error.
+.TP
+.BR \-q ", " \-\-quiet
+Log errors only, rather than a line per connection.
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the version, and the versions of the libraries built in.
+.SH HOSTS FILE
+A SOCKS client asks for a hostname. The hosts file turns that into a callsign:
+.PP
+.RS
+.nf
+# name     callsign    port
+gb7rdg     GB7RDG      radio
+gb7cip     GB7CIP\-1    radio
+.fi
+.RE
+.PP
+It is read from
+.I /etc/axcall/hosts
+and then
+.IR ~/.config/axcall/hosts ,
+the second replacing same-named entries in the first, or from the single file
+named by
+.BR \-\-hosts " or " $AXCALL_HOSTS .
+Names are matched without regard to case.
+.PP
+A name that is not listed but is itself a valid callsign is used as one, so
+.B gb7rdg\-1
+works with no configuration at all. An empty hosts file is a perfectly good
+hosts file.
+.SH USING IT
+The client has to let
+.B axsocks
+resolve the name. Given an address instead, there is nothing useful to be done
+with it: a callsign is not an IP address and no mapping back exists, so the
+request is refused rather than guessed at.
+.PP
+.RS
+.nf
+axsocks \-\-serial /dev/ttyUSB0:57600 \-s M0LTE\-7 radio
+
+curl \-\-socks5\-hostname localhost:1080 http://gb7rdg/status
+ssh \-o ProxyCommand='nc \-X 5 \-x localhost:1080 %h %p' pi@lab
+.fi
+.RE
+.PP
+The
+.B \-\-socks5\-hostname
+and
+.B "\-X 5 \-x"
+forms are what push resolution to the proxy;
+.B \-\-socks5
+and a plain
+.B \-x
+do not.
+.SH LIMITS
+Streams only. There is no UDP, no ICMP and no ping, because a connected-mode
+AX.25 session carries a byte stream and nothing else.
+.PP
+The port number in a SOCKS request is read and ignored. A callsign is the whole
+address, and a station decides what to run for a caller by which of its
+callsigns was called, not by a port number.
+.PP
+One connection at a time per station. An AX.25 session is a single ordered
+stream between a pair of callsigns, so a second call to a station already in
+session would share the first one's link and interleave with it; it is refused
+instead. Bear this in mind before pointing a browser at the proxy, which will
+cheerfully open six connections at once.
+.PP
+Every connection costs a SABM/UA round trip and holds a session open for its
+lifetime. On a shared half-duplex channel at 1200 baud that is a real cost.
+This suits one long-lived connection to a station far better than it suits
+chatty modern HTTP.
+.SH EXIT STATUS
+.TP
+.B 0
+Stopped cleanly.
+.TP
+.B 1
+Something unexpected went wrong.
+.TP
+.B 2
+The command line was wrong.
+.TP
+.B 3
+The modem could not be opened, or the listening port could not be bound.
+.SH FILES
+.TP
+.I /etc/axcall/hosts
+System hosts file.
+.TP
+.I ~/.config/axcall/hosts
+Per-user hosts file, read second.
+.TP
+.I /etc/axcall/ports
+System ports file, shared with
+.BR axcall (1).
+.SH ENVIRONMENT
+.TP
+.B AXCALL_HOSTS
+If set, the only hosts file consulted.
+.TP
+.B AXCALL_PORTS
+If set, the only ports file consulted.
+.SH SEE ALSO
+.BR axcall (1),
+.BR curl (1),
+.BR ssh (1)
+.PP
+Project home:
+.UR https://github.com/packet-net/axcall
+.UE
+.SH AUTHOR
+Tom Fanning M0LTE.
