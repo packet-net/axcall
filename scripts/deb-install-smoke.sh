@@ -116,6 +116,9 @@ fi
 
 install -d /etc/axcall
 printf "radio  M0LTE-7  /dev/ttyUSB0:57600  256  4  smoke\n" > /etc/axcall/ports
+# axinetd answers for whatever the rules file says, and refuses to start with
+# nothing to answer for, so it needs one before it will get as far as the modem.
+printf "M0LTE-1  radio  exec  /bin/cat\n" > /etc/axcall/inetd
 
 if has axcall; then
   # The port now resolves and supplies the callsign, so this gets as far as
@@ -138,6 +141,9 @@ for pkg in $PACKAGES; do
     axcall) args="radio gb7rdg" ;;
     *)      args="radio" ;;
   esac
+  # axinetd declines to run as root, which is every container by default, and
+  # that guard fires before it ever looks at the modem.
+  [ "$pkg" = axinetd ] && args="--allow-root $args"
   set +e
   # shellcheck disable=SC2086
   out=$("$pkg" $args 2>&1); rc=$?
@@ -152,6 +158,20 @@ for pkg in $PACKAGES; do
     *) echo "$out"; fail "$pkg: expected a complaint about the missing device" ;;
   esac
 done
+
+# axinetd runs programs on behalf of whoever calls in and cannot drop
+# privileges first, so it declines to start as root. The container is root, so
+# this is the place that assertion is worth making.
+if has axinetd; then
+  set +e
+  root_out=$(axinetd radio 2>&1); root_rc=$?
+  set -e
+  [ "$root_rc" -eq 2 ] || { echo "$root_out"; fail "axinetd as root: expected exit 2, got $root_rc"; }
+  case "$root_out" in
+    *"refusing to run as root"*) ;;
+    *) echo "$root_out"; fail "axinetd started as root without --allow-root" ;;
+  esac
+fi
 
 rm -rf /etc/axcall
 

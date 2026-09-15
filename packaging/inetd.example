@@ -1,0 +1,37 @@
+# axinetd rules.
+#
+# What answers when someone calls in. This is the replacement for ax25d, and
+# it is the inbound half of making the packet network reachable from any
+# language: with exec, writing a packet service becomes writing a program that
+# reads standard input.
+#
+# Copy to /etc/axcall/inetd for everyone, or ~/.config/axcall/inetd for
+# yourself; the per-user file replaces same-callsign entries in the system one.
+#
+# The callsign called is the whole address, so it is also the whole routing
+# decision: there are no port numbers on the AX.25 side. Give each service its
+# own SSID.
+#
+# The port column names a port from the ports file, and says which radio this
+# rule is for; "-" means whichever port the instance was started on.
+#
+# exec runs a program with the session on its standard input and output. The
+# path must be absolute. %r in an argument is replaced with the calling
+# station, which is also passed as AX25_CALLER in the environment. Arguments
+# are split on whitespace and there is no quoting: anything needing a space
+# wants a wrapper script, which is clearer than a config line that has grown
+# its own shell.
+#
+# The program's standard error goes to the log, not down the link.
+#
+# tcp hands the call to a local service instead. Bear in mind that the service
+# gets a byte stream with no idea who is on the other end.
+#
+# axinetd will not run as root: it runs these programs on behalf of whoever
+# calls in, and cannot drop privileges first. Run it as a dedicated
+# unprivileged user.
+
+# callsign    port    action
+#M0LTE-1      radio   exec  /usr/local/bin/bbs --user %r
+#M0LTE-2      radio   tcp   127.0.0.1:8080
+#M0LTE-3      -       exec  /usr/local/bin/greet

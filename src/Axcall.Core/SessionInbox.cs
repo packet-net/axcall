@@ -3,29 +3,36 @@ using System.Threading.Channels;
 using Packet.Ax25.Session;
 using Packet.Core;
 
-namespace Axsocks;
+namespace Axcall;
 
 /// <summary>
-/// Collects what arrives on a session, from the moment a dial starts rather
-/// than the moment it completes.
+/// Collects what arrives on a session, from before the conversation starts
+/// rather than from whenever the caller gets round to asking.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Sessions are built by the listener before the handshake finishes, and a
-/// station that sends a banner the instant it answers can have bytes on the
-/// way before the caller has anything to attach a handler to. Subscribing at
+/// station that sends a banner the instant the link comes up can have bytes on
+/// the way before there is anything to attach a handler to. Subscribing at
 /// session-construction time and buffering closes that window: the data is
-/// already collected by the time the proxy asks for it.
+/// already collected by the time it is asked for.
 /// </para>
 /// <para>
-/// Subscriptions are keyed by remote callsign rather than by session object
-/// for the same reason. The listener caches and reuses a session per peer, so
-/// the object is not available until the dial returns, whereas the callsign is
-/// known before it starts. Keying on it also means a reused session cannot
-/// hand a new conversation the leftovers of the last one.
+/// Subscriptions are keyed by remote callsign rather than by session object.
+/// For an outbound call the object does not exist until the dial returns,
+/// whereas the callsign is known before it starts, so arming can happen first.
+/// For an inbound call the listener may hand back a session it built for an
+/// earlier conversation with the same peer, and keying on the callsign is what
+/// lets a fresh subscription replace the spent one rather than the new
+/// conversation writing into a channel that was closed with the last.
+/// </para>
+/// <para>
+/// So: <see cref="Attach"/> once per session, from the listener's
+/// ConfigureSession hook, and <see cref="Arm"/> once per conversation, before
+/// an outbound dial or on an inbound accept.
 /// </para>
 /// </remarks>
-internal sealed class SessionInbox
+public sealed class SessionInbox
 {
     private readonly ConcurrentDictionary<Callsign, Subscription> current = new();
 
@@ -56,7 +63,10 @@ internal sealed class SessionInbox
         };
     }
 
-    /// <summary>Start collecting for a conversation with <paramref name="remote"/>.</summary>
+    /// <summary>
+    /// Start collecting for a conversation with <paramref name="remote"/>,
+    /// discarding anything left from the last one.
+    /// </summary>
     public Subscription Arm(Callsign remote)
     {
         var subscription = new Subscription();
@@ -69,7 +79,7 @@ internal sealed class SessionInbox
         => current.TryRemove(new KeyValuePair<Callsign, Subscription>(remote, subscription));
 
     /// <summary>One conversation's worth of inbound data and its end.</summary>
-    internal sealed class Subscription
+    public sealed class Subscription
     {
         // Unbounded is safe here in a way it usually is not: the producer is a
         // radio link running at a few thousand bits per second, and the
