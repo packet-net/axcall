@@ -79,11 +79,37 @@ rm -rf "$stage"
 # copies it. axcall treats a missing ports file as "no ports configured", not
 # as an error, so the package works out of the box with a device path.
 install -d "$stage/usr/bin" \
+           "$stage/usr/lib/axcall" \
            "$stage/usr/share/man/man1" \
            "$stage/usr/share/doc/axcall/examples" \
            "$stage/DEBIAN"
 
-install -m 0755 "$pub/axcall" "$stage/usr/bin/axcall"
+# The binary lives in /usr/lib/axcall rather than /usr/bin, with /usr/bin/axcall
+# a symlink to it, because a NativeAOT build is not always one file.
+# System.IO.Ports is out-of-band from the shared framework and ships its native
+# helper only as a .so, so AOT cannot static-link it; it is dlopened at runtime
+# from the directory holding the executable. Alone in /usr/bin the lookup fails
+# and every serial port is unopenable, which is how v0.5.0 and v0.6.0 shipped.
+#
+# The runtime resolves that directory through /proc/self/exe, so it follows the
+# symlink to the real location and finds the library next to it. A private
+# directory under /usr/lib is also what Debian policy asks for; the alternative,
+# dropping a Microsoft-named .so straight into the multiarch directory, is a
+# collision waiting for the second AOT .NET package on the system.
+install -m 0755 "$pub/axcall" "$stage/usr/lib/axcall/axcall"
+ln -s ../lib/axcall/axcall "$stage/usr/bin/axcall"
+
+# Whatever native libraries the publish could not link in. AOT builds have at
+# least libSystem.IO.Ports.Native.so; the armhf single-file build has none,
+# because IncludeNativeLibrariesForSelfExtract bundles them inside the binary.
+shopt -s nullglob
+native_libs=("$pub"/*.so)
+shopt -u nullglob
+for lib in "${native_libs[@]}"; do
+  echo "==> bundling native library $(basename "$lib")"
+  install -m 0644 "$lib" "$stage/usr/lib/axcall/$(basename "$lib")"
+done
+
 install -m 0644 "$root/packaging/ports.example" "$stage/usr/share/doc/axcall/examples/ports"
 
 # Man pages must be gzipped with no timestamp (-n), or the .deb is not
@@ -122,7 +148,8 @@ printf 'axcall (%s) unstable; urgency=medium\n\n  * Release %s. See https://gith
   | gzip -9nc > "$stage/usr/share/doc/axcall/changelog.Debian.gz"
 chmod 0644 "$stage/usr/share/doc/axcall/changelog.Debian.gz"
 
-# Dependencies, read off the binary rather than assumed, because the two publish
+# Dependencies, read off the binary and any bundled native libraries rather
+# than assumed, because the two publish
 # strategies differ: a NativeAOT build links libgcc, libstdc++ and zlib
 # statically and needs only libc, while the trimmed single-file build still
 # wants all of them. Declaring the union on an AOT package would pull in
@@ -143,7 +170,7 @@ while read -r soname; do
   pkg="${soname_to_pkg[$soname]:-}"
   [ -n "$pkg" ] || { echo "unmapped shared library dependency: $soname" >&2; exit 1; }
   case ",$depends," in *",$pkg,"*) ;; *) depends="${depends:+$depends,}$pkg" ;; esac
-done < <(objdump -p "$pub/axcall" | awk '/NEEDED/ {print $2}' | sort -u)
+done < <(objdump -p "$pub/axcall" "${native_libs[@]}" | awk '/NEEDED/ {print $2}' | sort -u)
 depends="${depends//,/, }"
 echo "==> depends: $depends"
 
