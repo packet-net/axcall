@@ -83,8 +83,12 @@ The send window, k (MAXFRAME): frames in flight before an acknowledgement is
 needed. 1 to 7, or 1 to 127 with
 .BR "\-m e" .
 The default is 4 on either modulus, after which XID takes the lower of what each
-end offers. With SREJ negotiated the window is held to half the modulus, so 5 to
-7 take effect only on a go\-back\-N link.
+end offers. k is a notification of what a station can receive, not a request, so
+a wide window has to be set at
+.I both
+ends: asking for 100 against a station offering 7 settles on 7. With SREJ
+negotiated the window is held to half the modulus, so 5 to 7 take effect only on
+a go\-back\-N link.
 .TP
 .BI \-m " s|e"
 The AX.25 mode to use:
@@ -94,6 +98,18 @@ for normal (modulo 8) operation, the default, and
 for extended (modulo 128, AX.25 v2.2). An extended dial falls back to modulo 8
 if the peer answers FRMR or DM, so the call still goes through. Inbound sessions
 use whichever the caller asks for.
+.IP
+An extended dial sends its SABME first and negotiates afterwards, so the
+parameters on the connect line are the ones this end offered. When the XID
+exchange settles on something else a round trip later, axcall says so:
+.IP
+.EX
+axcall: connected to GB7RDG (mod\-128, window 100, paclen 128, SREJ off)
+axcall: negotiated with GB7RDG (mod\-128, window 7, paclen 128, SREJ off)
+.EE
+.IP
+A modulo\-8 dial negotiates before it connects, so its connect line is already
+the agreed one and no second line follows.
 .TP
 .BI \-T " timeout"
 Close the connection automatically when no data has been transferred in either

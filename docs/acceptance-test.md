@@ -156,7 +156,34 @@ axcall -p 128 -w 7 -d radio CALL2
 
 *Proves:* N1 and k reach the link. Watch the status line and the frame trace; the I-frames should be no larger than 128 bytes of payload.
 
-**2.3 Keep the link up after input ends:**
+**2.3 Modulo 128.** The v2.2 link, which is a different establishment path and a different negotiation.
+
+On **radio2**:
+
+```sh
+axcall -l -m e -w 32 -d radio
+```
+
+On **radio1**:
+
+```sh
+axcall -m e -w 32 -p 128 -d radio CALL2
+```
+
+Expect: `SABME` answered by `UA`, then an `XID` exchange in the trace, and each end reporting `mod-128`. Where an end offered something the negotiation then changed, it says so a round trip later. Here radio2 offered the default 256-byte paclen and the link settled on radio1's 128:
+
+```
+axcall: connection from CALL1 (mod-128, window 32, paclen 256, SREJ off)
+axcall: negotiated with CALL1 (mod-128, window 32, paclen 128, SREJ off)
+```
+
+radio1 offered what the link settled on, so it prints no second line.
+
+Type a line each way and check the trace: `ns=` should count up past 7 if you send enough, and the two ends should agree on the same window and paclen once negotiation has landed.
+
+*Proves:* v2.2 establishment and XID. The window and paclen are notifications of what each station can receive, so each settles on the lesser of the two offers: `-w 100` against a station offering 7 gets you 7, which is why this step sets the window at both ends. Two ends still reporting different numbers after the negotiated line is a bug. A peer that is modulo-8 only answers FRMR or DM and the dial falls back to `mod-8`, which is a pass for this step too, just not a test of it.
+
+**2.4 Keep the link up after input ends:**
 
 ```sh
 echo hello | axcall -W radio CALL2

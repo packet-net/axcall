@@ -236,7 +236,9 @@ public sealed class SessionRelay : IAsyncDisposable
             return 4;
         }
 
-        WriteStatus($"connected to {FormatCallsign(target)} ({DescribeLink(session.Context)})");
+        var reported = DescribeLink(session.Context);
+        WriteStatus($"connected to {FormatCallsign(target)} ({reported})");
+        WatchNegotiation(session, FormatCallsign(target), reported, ct);
         return await RelayAsync(session, ct).ConfigureAwait(false);
     }
 
@@ -258,7 +260,9 @@ public sealed class SessionRelay : IAsyncDisposable
         }
 
         var peer = session.Context.Remote;
-        WriteStatus($"connection from {FormatCallsign(peer)} ({DescribeLink(session.Context)})");
+        var reported = DescribeLink(session.Context);
+        WriteStatus($"connection from {FormatCallsign(peer)} ({reported})");
+        WatchNegotiation(session, FormatCallsign(peer), reported, ct);
         return await RelayAsync(session, ct).ConfigureAwait(false);
     }
 
@@ -535,6 +539,71 @@ public sealed class SessionRelay : IAsyncDisposable
 
     private static string FormatCallsign(Callsign c)
         => c.Ssid == 0 ? c.Base : c.ToString();
+
+    /// <summary>How long to keep watching a new link for its XID exchange to settle.</summary>
+    /// <remarks>
+    /// Generous: T1 starts at 6 s and the MDL retries a XID command that goes
+    /// unanswered, so a negotiation can legitimately take two round trips plus a
+    /// retry on a slow channel. It is a bounded watch either way - a peer that
+    /// never negotiates costs one idle task for this long and prints nothing.
+    /// </remarks>
+    private static readonly TimeSpan NegotiationWatch = TimeSpan.FromSeconds(20);
+
+    /// <summary>How often the watch re-reads the live context.</summary>
+    private static readonly TimeSpan NegotiationPoll = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
+    /// Report the link parameters again if the XID exchange changes them after the
+    /// link comes up.
+    /// </summary>
+    /// <remarks>
+    /// The first status line can only report what this end offered. On a modulo-8
+    /// dial the XID goes out ahead of the SABM, so by the time we are connected the
+    /// negotiation has already landed and this prints nothing. On a modulo-128 dial
+    /// the SABME comes first and the XID follows it, and the answering end has sent
+    /// its UA - and its status line - before the caller's XID command even arrives:
+    /// both ends therefore announce their own offer, and a round trip later the
+    /// agreed values (the lesser of the two windows and paclens, per section 6.3.2)
+    /// can be quite different at both. Watching the live context is the honest way
+    /// to say so; the alternative, holding the connect line back until the
+    /// negotiation settles, stalls the terminal on every peer that does not answer
+    /// XID at all.
+    /// </remarks>
+    private void WatchNegotiation(Ax25Session session, string peer, string reported, CancellationToken ct)
+    {
+        if (options.Silent)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var deadline = Environment.TickCount64 + (long)NegotiationWatch.TotalMilliseconds;
+                while (!ct.IsCancellationRequested && Environment.TickCount64 < deadline)
+                {
+                    await Task.Delay(NegotiationPoll, ct).ConfigureAwait(false);
+
+                    if (session.CurrentState == "Disconnected")
+                    {
+                        return;     // the link went away before anything was agreed
+                    }
+
+                    var settled = DescribeLink(session.Context);
+                    if (!string.Equals(settled, reported, StringComparison.Ordinal))
+                    {
+                        WriteStatus($"negotiated with {peer} ({settled})");
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Ctrl-C or the session ending: nothing to report.
+            }
+        }, CancellationToken.None);
+    }
 
     /// <summary>
     /// The link parameters a session actually ended up with, read from its live

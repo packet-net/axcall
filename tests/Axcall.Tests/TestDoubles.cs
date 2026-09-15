@@ -21,14 +21,24 @@ internal sealed class LoopbackTransport : IAx25Transport
         Channel.CreateUnbounded<Ax25InboundFrame>(new UnboundedChannelOptions { SingleReader = true });
 
     private LoopbackTransport? peer;
+    private TimeSpan propagation;
+    private readonly Lock queueGate = new();
+    private Task queue = Task.CompletedTask;
 
     private LoopbackTransport() { }
 
     /// <summary>A connected pair. Each end's sends arrive at the other end's receive stream.</summary>
-    public static (LoopbackTransport A, LoopbackTransport B) CreatePair()
+    /// <param name="propagation">
+    /// How long a frame takes to reach the other end. Zero (the default) delivers
+    /// in the same breath as the send, which is what most of these tests want. A
+    /// non-zero value models a radio path, where a round trip is long enough for
+    /// things that happen after the connect - an XID exchange, say - to still be in
+    /// flight when the caller is already connected.
+    /// </param>
+    public static (LoopbackTransport A, LoopbackTransport B) CreatePair(TimeSpan propagation = default)
     {
-        var a = new LoopbackTransport();
-        var b = new LoopbackTransport();
+        var a = new LoopbackTransport { propagation = propagation };
+        var b = new LoopbackTransport { propagation = propagation };
         a.peer = b;
         b.peer = a;
         return (a, b);
@@ -38,7 +48,27 @@ internal sealed class LoopbackTransport : IAx25Transport
     {
         // Copied, because the caller is free to reuse its buffer once this
         // returns and the frame is read later on the peer's pump thread.
-        peer?.inbound.Writer.TryWrite(new Ax25InboundFrame(ax25.ToArray(), 0, DateTimeOffset.UtcNow));
+        var frame = new Ax25InboundFrame(ax25.ToArray(), 0, DateTimeOffset.UtcNow);
+
+        if (propagation <= TimeSpan.Zero)
+        {
+            peer?.inbound.Writer.TryWrite(frame);
+            return Task.CompletedTask;
+        }
+
+        // Delayed delivery, chained so frames land in the order they were sent -
+        // a channel that reorders would be a different test altogether.
+        lock (queueGate)
+        {
+            queue = queue.ContinueWith(
+                async _ =>
+                {
+                    await Task.Delay(propagation).ConfigureAwait(false);
+                    peer?.inbound.Writer.TryWrite(frame);
+                },
+                TaskScheduler.Default).Unwrap();
+        }
+
         return Task.CompletedTask;
     }
 
