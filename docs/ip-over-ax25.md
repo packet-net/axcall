@@ -6,7 +6,7 @@ Everything in this document is an observation against **LinBPQ 6.0.25.28**, on a
 
 LinBPQ is one implementation and is treated here as the reference only because it was the one already running in this repo's test harness. That is a convenience, not a judgement about its correctness, and the work below turned up a real 64-bit bug in it, which is reason enough not to assume the rest of it is right either.
 
-Nothing here has been tested against **JNOS**, **XRouter**, or the **Linux kernel's own AX.25 stack**, and those are the other three things a station is likely to be talking to. Where LinBPQ's behaviour has been turned into a number in the code, it is a default that can be changed rather than a limit that is enforced, and the comment beside it says which implementation it came from.
+**XRouter** and the **Linux kernel's own AX.25 stack** have since been tested; see the sections at the end. **JNOS** has not. Where LinBPQ's behaviour has been turned into a number in the code, it is a default that can be changed rather than a limit that is enforced, and the comment beside it says which implementation it came from.
 
 Three specific things to be suspicious of until they are tested more widely:
 
@@ -186,3 +186,60 @@ $ curl -w '%{http_code}, %{size_download} bytes in %{time_total}s\n' http://44.1
 Two and a half to four seconds for a ping is about right: two frames of roughly 90 bytes each at 1200 baud, plus TXDELAY at each end. Sixteen seconds for a 117-byte HTTP response is the three-way handshake, the request, the response and the teardown, on a half-duplex channel where every turn costs a transmission.
 
 With no route configured at all, the first ping is lost and the rest succeed: that is the ARP request going out, LinBPQ answering it, and `axtun` learning the station. Which is the behaviour that was designed, doing what it was designed to do.
+
+---
+
+# The Linux kernel's AX.25 stack
+
+*Run 2026-09-15 against Debian 12, kernel 6.1.0-53-amd64, ax25-tools 0.0.10, on the ax25-lab VM. `kissattach` onto a socat pty bridged to the same net-sim channel.*
+
+This cannot run in CI and never will: `AF_AX25` is refused inside a non-init user namespace, so every container on this project's infrastructure, including the GitHub Actions runner, gets `EAFNOSUPPORT` however many capabilities it is granted. It needs a VM. See #53.
+
+## It settled the ARP protocol type, against us
+
+Covered above. The short version: the kernel is the only implementation that **checks** the field, it requires `AX25_P_IP` (0x00CC), and axtun was sending `ETH_P_IP` (0x0800). A Linux station would never have answered an ARP request from it.
+
+## The fix, measured end to end
+
+Same lab, same kernel station, same channel, cold start with the neighbour cache flushed and nothing learned on either side. The only variable is the axtun binary.
+
+| | ARP answered | ping |
+|---|---|---|
+| before the fix (0x0800) | no | **0 of 5** |
+| v0.8.0 (0x00CC) | yes | **3 of 4** |
+
+The one lost packet in the second row is the ARP round trip, which is the designed behaviour: the first packet to an unknown station is dropped while the request goes out, and whatever sent it retries.
+
+```
+axtun: who has 44.131.20.10? asked QST
+axtun: told AXKERN that 44.131.20.30 is AXTUN
+64 bytes from 44.131.20.10: icmp_seq=3 ttl=64 time=3696 ms
+64 bytes from 44.131.20.10: icmp_seq=4 ttl=64 time=4194 ms
+```
+
+Both halves of the ARP contract are exercised there: axtun asking and being answered, and axtun answering the kernel's own request for its address.
+
+## A note on chasing this one down
+
+The failing case took far longer to diagnose than it should have, and the reason is worth recording. The frames were captured off the air and replayed byte for byte from a separate KISS client, which the kernel answered, appearing to exonerate the frame. That produced an hour of hypotheses about timing, cache state and host layout, all of them wrong.
+
+What settled it was capturing the KISS bytes on the TCP connection rather than the decoded frames on the air, which showed `0003 0800` where the monitor had shown `0003 00cc`: the two runs were different binaries, one built before the fix and one after. **The monitor was telling the truth about a different process than the one under test.**
+
+The lesson is not about ARP. It is that "I replayed the exact bytes and it worked" is only as good as the assumption that both runs came from the same build, and nothing ever checked that.
+
+---
+
+# XRouter
+
+*Run 2026-09-15 against `ghcr.io/packethacking/xrouter:latest`, version 505c, on the same net-sim channel.*
+
+XRouter's only KISS-capable interface type is `ASYNC`. `IFACES(6)` lists AGW, ASYNC, AXIP, AXTCP, AXUDP, EXTERNAL, LOOPBACK, TCP, TUN, UDP and YAM, and `EXTERNAL` is Ethernet, so it needs the same socat pty bridge the kernel does.
+
+It answers AX.25 ARP and ICMP with axtun's codec unchanged, first attempt, and unlike LinBPQ it answers ping itself rather than through a TAP device and a NAT to the container's own kernel.
+
+Two things worth knowing:
+
+- **It sends ARP protocol type 0x00CC**, agreeing with LinBPQ and the kernel.
+- **It supports `v = Virtual circuit (ip-over-ax25)` as a route mode**, alongside `d = Datagram`. That makes it the way to test the "accept VC as well as datagram" requirement on the air, which LinBPQ cannot do because its VC transmit is broken on 64-bit. Not yet done.
+
+Config traps: `LOCATOR` is mandatory or it exits 255, and an `ip route add` alongside an `arp add` for the same destination makes it transmit every reply **twice**, where the ARP entry alone derives the route correctly.
