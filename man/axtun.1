@@ -1,0 +1,317 @@
+.TH AXTUN 1 "15 September 2026" "axcall" "Linux Programmer's Manual"
+.SH NAME
+axtun \- IP over AX.25 on a TUN device
+.SH SYNOPSIS
+.B axtun
+.RI [ options ]
+.I port
+.SH DESCRIPTION
+.B axtun
+puts a network interface on the machine and carries what the kernel routes to
+it over an AX.25 radio channel, so software that already exists works over
+radio:
+.BR ping ,
+.BR ssh ,
+UDP, and a route to a remote site's whole LAN.
+.PP
+This is a different thing from
+.BR axsocks (1)
+and
+.BR axinetd (1),
+which carry a stream between a socket and a connected-mode AX.25 session. Those
+serve someone writing a packet application. This serves someone running IP
+software that was never going to know what AX.25 is.
+.PP
+.B axtun
+carries its own AX.25 layer and speaks KISS to a TNC over a serial port or over
+TCP, exactly as
+.BR axcall (1)
+does. It needs no kernel AX.25 stack, no
+.BR kissattach (8)
+and no
+.BR ax25rtd (8).
+.PP
+Be honest about the bitrate. A full frame at 1200 baud is about 1.7 seconds on
+air, so at 1200 this is a curiosity; it becomes a tool at 9600 and above.
+.SH OPTIONS
+.TP
+.I port
+The AX.25 port to use: a name from the ports file, a device path, or
+.IR host : port
+for a KISS-over-TCP modem. See
+.BR axcall (1)
+for the ports file.
+.TP
+.BI \-s " callsign" "\fR, \fP" \-\-mycall " callsign"
+The callsign to transmit as. Required unless the ports file entry supplies one.
+.TP
+.BI \-\-dev " name"
+The interface to create. The default is
+.BR ax0 .
+.TP
+.BI \-\-addr " address" / length
+Put this address on the interface, bring it up, and set its MTU, e.g.
+.BR 44.131.20.1/24 .
+Needs
+.BR CAP_NET_ADMIN .
+Without it the interface is left exactly as it was found, which is the way to
+run unprivileged; see PRIVILEGES.
+.IP
+The prefix length is not optional. It decides what is on-link, and guessing a
+classful default would be wrong almost every time.
+.TP
+.BI \-\-mtu " bytes"
+Interface MTU. The default is 236. Above 312 is allowed, with a warning: that
+is the most the only peer yet tested will accept, not a limit of AX.25. See
+SIZES. Only meaningful with
+.BR \-\-addr ,
+since without it the interface is not reconfigured at all.
+.TP
+.BI \-\-config " file"
+Read this config file instead of searching the usual paths.
+.TP
+.BI \-\-serial " device" [: baud ]
+.TQ
+.BI \-\-tcp " host" : port
+Name the transport directly instead of giving a
+.IR port .
+.TP
+.BI \-\-baud " rate"
+Serial baud rate. Overrides a rate from the ports file. The default is 57600.
+.TP
+.BI \-\-txdelay " ms"
+.TQ
+.BI \-\-persist " 0-255"
+.TQ
+.BI \-\-slottime " ms"
+.TQ
+.BI \-\-txtail " ms"
+KISS channel-access parameters, as
+.BR kissparms (8)
+set them per interface. Timers are in milliseconds and must be a multiple of
+10, the KISS unit.
+.TP
+.BR \-q ", " \-\-quiet
+Log errors only.
+.TP
+.BR \-h ", " \-\-help
+Print usage and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the version, and the versions of the libraries built in.
+.SH ADDRESSING
+Use 44 net. AMPRNet is a live ecosystem with real allocations and real peers;
+a private range makes this a demonstration rather than a connection to
+anything.
+.PP
+Outbound addressing is resolved from the config file. A TUN device is
+.BR NOARP :
+the kernel hands a packet over and never asks who owns the address on this
+link, so the route table is the whole of how a packet finds a station. That is
+deliberate. Deciding at run time which transmitter to key, on the strength of
+something a stranger said on the air, is not a decision to hand to a discovery
+protocol.
+.PP
+Inbound is the opposite.
+.B axtun
+answers AX.25 ARP for its own address, because refusing to would leave it
+undiscoverable by anyone who has not hand-configured it, which is most people.
+A station heard on the air is remembered for an hour, and a station heard
+through a digipeater is remembered with the reverse of the path it arrived by.
+Anything in the config file beats anything heard.
+.PP
+When nothing knows how to reach an address,
+.B axtun
+broadcasts an ARP request for it, at most once every fifteen seconds per
+address, and drops the packet that prompted it. Whatever sent it will retry,
+and by then the answer will have arrived.
+.SH ENCAPSULATION
+IP goes out in UI frames with PID 0xCC, unacknowledged. The alternative,
+running IP inside a connected-mode session, puts two retransmission timers on
+the same loss: AX.25's T1 and TCP's RTO. TCP then measures a round trip that
+includes the link layer's own retries, its estimator learns a number that has
+nothing to do with the path, and throughput collapses.
+.PP
+On receive, both are accepted. A peer whose route says virtual-circuit mode is
+a peer that exists, and refusing its frames would gain nothing.
+.PP
+ARP is PID 0xCD, in the AX.25 form: hardware type 3, seven-octet addresses,
+thirty bytes. The protocol type field is sent as 0x0800, accepted whatever it
+says, and reflected back as it arrived, because LinBPQ uses 0x00CC there and
+the kernel is expected to use 0x0800, and neither appears to check it.
+.PP
+Van Jacobson header compression (PID 0x06) is not implemented. LinBPQ does not
+implement it either, and it is usually described as belonging to the
+NOS-derived stacks, but that has not been tested here. A peer that sends
+compressed headers will not be understood.
+.SH EGRESS FILTERING
+.B axtun
+decides what may be transmitted before transmitting it, and starts closed.
+.PP
+This is not a security feature and it is not a firewall. It is the thing that
+stops a general purpose operating system using somebody's amateur licence to
+announce its printers. Put an unfiltered IP interface on a shared radio channel
+and the machine will transmit, unasked and forever: mDNS, LLMNR, SSDP,
+NetBIOS, DHCP renewals, IPv6 router solicitations, NTP. On a wired LAN that is
+background noise. Here it is a transmitter keying up on its own initiative
+under someone's personal licence.
+.PP
+Rules live in the config file:
+.PP
+.RS
+.nf
+allow|deny <protocol> [to <range>] [port <n[\-m]>]
+.fi
+.RE
+.PP
+They are tried in order and the first match decides. Anything no rule matches
+does not go out. The protocol is
+.BR icmp ", " tcp ", " udp ,
+a number, or
+.BR any ;
+the destination defaults to any; only tcp and udp rules may name a port.
+.PP
+Two things no ordinary rule can let through. A multicast, broadcast or
+link-local destination needs a rule that names its range explicitly, because a
+wildcard rule was written by somebody thinking about unicast. And anything that
+is not IPv4 never reaches the filter at all, because a packet whose shape is
+not understood cannot be judged; IPv6 on this interface is dropped.
+.PP
+A rule that names a port cannot match a trailing IP fragment, which does not
+carry one. Such a fragment is dropped, so that a port rule cannot be evaded by
+fragmenting around it.
+.PP
+With no rules at all a default policy applies: ping, TCP and UDP to a unicast
+address, with the loud ports taken back out. That is not the strictest reading
+of default-deny, but a tool whose first run looks broken teaches people to turn
+the filter off.
+.PP
+The first time each kind of packet is dropped,
+.B axtun
+says so on standard error, once, naming what would have to be allowed.
+.SH CONFIG FILE
+.RS
+.nf
+# what reaches where
+route 44.131.20.2      PN0TST
+route 44.131.91.0/24   GB7RDG\-1 via WIDE1\-1
+route default          GB7RDG\-1
+
+# what may go out
+allow icmp
+allow tcp to 44.0.0.0/8
+.fi
+.RE
+.PP
+Read from
+.I /etc/axcall/axtun
+and then
+.IR ~/.config/axcall/axtun ,
+a route in the second replacing one for the same range in the first, or from
+the single file named by
+.BR \-\-config " or " $AXCALL_AXTUN .
+.PP
+Longest prefix wins, as in any routing table.
+.B default
+is the same as
+.BR 0.0.0.0/0 .
+.PP
+.B via
+gives a digipeater path, up to eight calls, comma separated. Each one costs
+seven bytes of every frame and a whole extra transmission, so two is already a
+long path for IP. Without it nothing behind a digipeater is reachable at all.
+.SH PRIVILEGES
+Creating a TUN interface needs
+.BR CAP_NET_ADMIN ,
+and so does
+.BR \-\-addr .
+To run unprivileged, create the interface once as root and hand it over:
+.PP
+.RS
+.nf
+sudo ip tuntap add ax0 mode tun user $USER
+sudo ip addr add 44.131.20.1/24 dev ax0
+sudo ip link set ax0 up mtu 236
+axtun \-s M0LTE\-7 radio
+.fi
+.RE
+.PP
+.B axtun
+then attaches to the existing device, reads its address so it can answer ARP,
+and changes nothing about it. A device created this way persists across
+restarts of
+.BR axtun ;
+one created by
+.B axtun
+itself disappears when it exits.
+.SH SIZES
+Every number in this section comes from one implementation, LinBPQ 6.0.25.28.
+None of it has been tested against JNOS, XRouter or the kernel's own AX.25
+stack, so treat it as the shape of the default rather than as a property of
+AX.25.
+.PP
+The largest frame LinBPQ will accept is 328 bytes. That is not from the
+specification: it discards any KISS frame over 329 bytes including the type
+byte, silently, with nothing on the air and nothing in its log. Each digipeater
+in the path takes another seven bytes off what is left. Hence a default MTU of
+236, which sits under all of it with room for a path; at 1200 baud the last
+twenty bytes are not what is slowing anything down.
+.PP
+.B \-\-mtu
+will go above that and print a warning rather than refusing, because a ceiling
+measured against one peer should not be the reason a link that works cannot be
+used. If the other end goes quiet after raising it, put it back first: a
+station that discards an overlong frame without a word is indistinguishable
+from one that has gone away.
+.PP
+LinBPQ splits its own output at an IP total length of 252 bytes, using ordinary
+IP fragmentation rather than the AX.25 segmentation of PID 0x08, and pays no
+attention to the PACLEN configured on the port.
+.B axtun
+hands fragments to the kernel and lets it reassemble them, which is what a TUN
+device is for, so this needs nothing from either end.
+.SH EXIT STATUS
+.TP
+.B 0
+Stopped cleanly.
+.TP
+.B 1
+Something unexpected went wrong.
+.TP
+.B 2
+The command line or the config file was wrong.
+.TP
+.B 3
+The interface or the modem could not be opened, or this is not Linux.
+.SH FILES
+.TP
+.I /etc/axcall/axtun
+System config file.
+.TP
+.I ~/.config/axcall/axtun
+Per-user config file, read second.
+.TP
+.I /etc/axcall/ports
+System ports file, shared with
+.BR axcall (1).
+.TP
+.I /dev/net/tun
+The control device interfaces are created through.
+.SH ENVIRONMENT
+.TP
+.B AXCALL_AXTUN
+If set, the only config file consulted.
+.TP
+.B AXCALL_PORTS
+If set, the only ports file consulted.
+.SH SEE ALSO
+.BR axcall (1),
+.BR axsocks (1),
+.BR axinetd (1),
+.BR ip (8)
+.PP
+Project home:
+.UR https://github.com/packet-net/axcall
+.UE
+.SH AUTHOR
+Tom Fanning M0LTE.

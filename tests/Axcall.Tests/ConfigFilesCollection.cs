@@ -3,8 +3,8 @@ using Xunit;
 namespace Axcall.Tests;
 
 /// <summary>
-/// Tests that pin <c>AXCALL_PORTS</c> or <c>AXCALL_HOSTS</c> at a temporary
-/// file.
+/// Tests that pin <c>AXCALL_PORTS</c>, <c>AXCALL_HOSTS</c>, <c>AXCALL_INETD</c>
+/// or <c>AXCALL_AXTUN</c> at a temporary file.
 /// </summary>
 /// <remarks>
 /// Those variables are process-wide, so two test classes setting them at once

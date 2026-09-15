@@ -126,15 +126,17 @@ It is also worth being honest that every SOCKS connection costs a SABM/UA round 
 
 ## Path B: the TUN device
 
+**Built.** See `axtun(1)` and `docs/ip-over-ax25.md`.
+
 ### Shape
 
 `axtun` creates a TUN interface, and carries IP packets over AX.25 with PID 0xCC, which `Ax25Pid.Ip` already names.
 
 ```sh
-sudo axtun --serial /dev/ttyUSB0:57600 -s M0LTE-7 --dev ax0
-sudo ip addr add 44.131.20.1/24 dev ax0
-sudo ip link set ax0 up mtu 236
+sudo axtun --serial /dev/ttyUSB0:57600 -s M0LTE-7 --dev ax0 --addr 44.131.20.1/24
 ```
+
+It sets the address, the netmask and the MTU itself, so the three `ip` commands the first draft of this section listed turned out to be unnecessary. They are still the way to run unprivileged: create the device once as root with `ip tuntap add ax0 mode tun user $USER`, configure it by hand, and `axtun` attaches to it and changes nothing.
 
 Then everything works, for a given value of works:
 
@@ -150,7 +152,7 @@ And a remote site's whole network becomes reachable, which is the thing Path A c
 sudo ip route add 192.168.7.0/24 via 44.131.20.2 dev ax0
 ```
 
-### The design calls I would argue for
+### The design calls, as built
 
 **TUN, not TAP.** AX.25 is not Ethernet. TAP would force you to invent ARP-over-AX.25 and carry 14 bytes of Ethernet header on a channel whose paclen is 256. The kernel stack did this at layer 3 and so should we.
 
@@ -158,9 +160,9 @@ sudo ip route add 192.168.7.0/24 via 44.131.20.2 dev ax0
 
 ```
 # /etc/axcall/axtun
-44.131.20.1     M0LTE-7     # us
-44.131.20.2     GB7RDG      # the node
-44.131.20.0/24  broadcast   QST-0
+route 44.131.20.2      PN0TST
+route 44.131.91.0/24   GB7RDG-1 via WIDE1-1
+route default          GB7RDG-1
 ```
 
 But refusing to speak ARP at all (PID 0xCD) is not a simplification, it is an interop failure: a station with only a static map cannot be *discovered* by anyone who does not already know it, and peers do issue ARP requests. Answering ARP for our own address while resolving outbound from the map keeps the determinism and costs almost nothing.
@@ -173,7 +175,7 @@ Receiving is a different question, and answering it the same way would be a bug.
 
 A peer configured for virtual circuit will open a session and send I-frames with PID 0xCC expecting them to work. Accept them.
 
-**Set the MTU honestly.** 256 paclen minus overhead is about 236. Path MTU discovery will not save you; set it and move on.
+**Set the MTU honestly.** 236, set explicitly. Path MTU discovery will not save you. The number held up when it was measured: see below.
 
 **Be honest about bitrate.** A full packet at 1200 baud is about 1.7 seconds on air. This is a curiosity below 9600 and only becomes a tool at qpsk3600 and above.
 
@@ -196,11 +198,37 @@ The last one deserves more than a table row. `Ax25Pid` already names `Compressed
 
 None of this should be settled by reading man pages, which is all the above is. LinBPQ has an IP stack and is already running in this repo's Testcontainers harness for the connected-mode integration tests, so an IP-over-AX.25 interop test can be built against a real implementation. That is the first thing to do if Path B is ever picked up, before writing the TUN plumbing: prove the encapsulation against something real, then build out from there.
 
+That is what was done, and two rows of the table above came out differently once they were measured rather than read. The whole of it is in `docs/ip-over-ax25.md`; the summary is below.
+
+### What building Path B turned up
+
+**The interop test was the right first step, and it moved two of the four rows.** Writing it first meant the codec was shaped by what a thirty-year-old implementation actually does rather than by what its documentation says.
+
+**But it was one implementation, and that is not the same as the field.** LinBPQ was used because it was already in the test harness, not because it is the reference. It is not: the work below turned up a real 64-bit bug in it, which is reason enough not to assume the rest is right. JNOS, XRouter and the kernel's own AX.25 stack are untested, and each is something a station is likely to be talking to. Every number below that came from LinBPQ is a default in the code rather than a limit, with the source named beside it. A proper multi-implementation campaign is a separate piece of work, tracked in #53.
+
+**The frame size ceiling is not in any specification.** LinBPQ discards any KISS frame over 329 bytes including the type byte, silently: nothing on the air, nothing in its log. A 544-byte frame was carried to its port by the channel simulator and vanished. So the largest AX.25 frame worth sending is 328 bytes, the largest IP packet 312, and less than that with a digipeater in the path. That is now a named constant with the evidence beside it, and a test that sends one frame over the limit, gets silence, then sends one under it and gets an answer.
+
+**Fragmentation is at the IP layer, not AX.25 segmentation.** The reading said NOS-style segmentation with PID 0x08, which LinBPQ does implement on receive. It does not use it. Hand it a 300-byte packet to route and what comes back is two ordinary IP fragments, MF bit and fragment offset, split so that no IP packet exceeds 252 bytes, which is a hardcoded 256 rounded down to an eight-byte boundary. It pays no attention to the PACLEN configured on the port. This is good news: a TUN device hands fragments to the kernel and the kernel reassembles them, so there is nothing to implement.
+
+**Two live implementations disagree about a field, and neither checks it.** The ARP protocol type is 0x0800 from the Linux kernel, because the generic ARP code fills it in from the protocol, and 0x00CC from LinBPQ, which is the AX.25 PID widened to sixteen bits. LinBPQ dispatches on the operation code alone and reflects whatever it was sent, which was confirmed by asking it with one of each and reading the replies. So `axtun` sends the kernel's value, accepts either, and hands back whatever a request used.
+
+**Virtual-circuit IP transmission is broken in LinBPQ on 64-bit.** Set an ARP entry to mode V, give LinBPQ a packet for it, and it opens an AX.25 session correctly and then sends an I-frame with four bytes of the previous UI header where the PID should be. `SendNetFrame` indexes the frame buffer at fixed offsets that assume a four-byte `CHAIN` pointer, which is what it was on 32-bit. The datagram path uses struct members and is correct, which is why only this path is affected. This is worth reporting upstream. It also means the "accept VC as well as datagram" row is proven on our side by unit test and by reading LinBPQ's receive path, but could not be observed on the air, because there is currently nothing sending it correctly.
+
+**LinBPQ has no Van Jacobson compression at all.** Its layer 2 dispatches PID 0xCC, 0xCD and 0x08 to its IP stack and nothing else. That is the whole of what was established: it does not show that VJ is rare, only that one implementation does without it. The usual claim that it belongs to JNOS and its descendants was not checked. `axtun` ships without it and says so, which is a scope decision rather than a finding.
+
+**A TUN device is NOARP, which makes the route table structural.** The kernel never asks who owns an address on this link; it hands the packet over. So the static map is not an optimisation that could be replaced by discovery later, it is the whole of how a packet finds a station. Answering ARP is what stops that being a closed world: a station that ARPs for us is remembered for an hour, with the reverse of the path it arrived by, so anything behind a digipeater becomes reachable without being written down.
+
+**The default-deny filter needed a defensible default, not just a mechanism.** A policy that allows nothing is the purest reading and also means every first run looks broken, which teaches people to turn the filter off. What shipped is: ping, TCP and UDP to a unicast address, with the loud ports (NetBIOS, SMB, mDNS, LLMNR, SSDP, WS-Discovery, DHCP) taken back out, and two things no ordinary rule can override. A multicast, broadcast or link-local destination needs a rule that names its range, because a wildcard rule was written by somebody thinking about unicast. And anything that is not IPv4 never reaches the filter at all, because a packet whose shape is not understood cannot be judged.
+
+**It works.** A real `ping` from the Linux kernel through `axtun` to LinBPQ over a simulated 1200 baud AFSK channel answers in about 2.9 seconds, both directions. `curl http://44.131.20.2:8008/` fetches LinBPQ's own web page over the same link in 15.8 seconds. That is a real TCP session over radio to software that has never heard of AX.25, which is the entire point of Path B.
+
 ### What Path B costs
 
 `CAP_NET_ADMIN`, or a persistent device created by root. Fine for a site gateway, friction for a developer tool, which is itself evidence that this serves a different audience.
 
 It is also a genuinely bigger build: a TUN device, an IP-to-callsign layer, a broadcast and multicast policy, MTU handling, and a decision about what to do with the traffic an idle Linux box emits without being asked. That last one is not a footnote. Put an unfiltered interface on a shared radio channel and mDNS, IPv6 router solicitations, NTP and whatever else will start transmitting on a band where you are legally responsible for every emission. **Any serious axtun needs a default-deny egress filter**, not as a feature but as a condition of being shippable.
+
+That estimate held. `axtun` is about twice the size of `axsocks`, and roughly half of it is the filter, the route table and the config file that feeds them rather than anything to do with AX.25.
 
 ## Side by side
 
@@ -210,13 +238,15 @@ It is also a genuinely bigger build: a TUN device, an IP-to-callsign layer, a br
 | Gives you | TCP streams, any language | IP: TCP, UDP, ICMP, routing |
 | Root needed | no | yes, CAP_NET_ADMIN |
 | New wire protocol | none | none, IP in UI frames |
-| Effort | small, reuses SessionRelay | substantial |
+| Effort | small, reuses SessionRelay | substantial, and it was |
 | Usable at 1200 baud | yes | not really |
-| Risk of unintended transmission | none | high, needs egress filtering |
+| Risk of unintended transmission | none | high; the egress filter is why it is shippable |
 | Prior art | ax25d, AGW | kernel ax25_ip, AMPRNet |
-| Interop burden | none, it is a socket | four separate behaviours, see above |
+| Interop burden | none, it is a socket | four separate behaviours, two of which turned out differently from the reading, against one peer of at least four |
 
 ## What I would do
+
+*Written before any of it was built. Both paths now exist; the order was A.2, A.3, then B, and the reasoning below is left as it stood.*
 
 Path A, in the order A.2 then A.3, and treat Path B as a separate project judged on its own merits rather than as the next step.
 
@@ -225,3 +255,7 @@ The reason is that Path A converts work already done into reach. The byte-transp
 Path B is the more interesting engineering and the smaller audience. It is worth doing if the goal is to administer remote sites over radio, or to connect to AMPRNet. It is not the answer to "how do I write something for the packet network", and it would be a mistake to build it in the belief that it is.
 
 It is also more work than the first draft of this document implied. That draft treated interoperability as something the design would get for free from using the right PID, which is wrong: VC receive, ARP, digipeated UI and VJ compression are each a deliberate piece of work, and a Path B without them talks only to itself.
+
+*After the fact: the last paragraph was right, and understated. Treating interoperability as a separate piece of work was what turned up the frame size ceiling, the fragmentation behaviour and a 64-bit bug in LinBPQ, none of which were visible from the documentation. Building the interop test before the TUN plumbing is the single decision here worth repeating.*
+
+*And it is still only a start. One peer was tested, and finding a bug in it is a reminder that the peer is not the specification either. JNOS, XRouter and the kernel stack remain untested; #53 plans that campaign as its own piece of work rather than as a follow-up to this one.*
