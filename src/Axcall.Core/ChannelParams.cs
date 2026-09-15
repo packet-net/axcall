@@ -22,9 +22,9 @@ namespace Axcall;
 /// axcall connected to it.
 /// </para>
 /// </remarks>
-internal sealed record ChannelParams(byte? TxDelay, byte? Persist, byte? SlotTime, byte? TxTail)
+public sealed record ChannelParams(byte? TxDelay, byte? Persist, byte? SlotTime, byte? TxTail)
 {
-    internal static readonly ChannelParams None = new(null, null, null, null);
+    public static readonly ChannelParams None = new(null, null, null, null);
 
     public bool Any => TxDelay is not null || Persist is not null || SlotTime is not null || TxTail is not null;
 
@@ -36,7 +36,7 @@ internal sealed record ChannelParams(byte? TxDelay, byte? Persist, byte? SlotTim
         other.TxTail ?? TxTail);
 
     /// <summary>The largest timer the KISS byte can express: 255 steps of 10 ms.</summary>
-    internal const int MaxTimerMs = 2550;
+    public const int MaxTimerMs = 2550;
 
     /// <summary>
     /// A timer in milliseconds, as kissparms(8) took them. The wire unit is
@@ -44,7 +44,7 @@ internal sealed record ChannelParams(byte? TxDelay, byte? Persist, byte? SlotTim
     /// refused rather than rounded, because silently keying 20 ms later than
     /// asked is the sort of thing nobody ever notices.
     /// </summary>
-    internal static bool TryParseTimerMs(string text, out byte tenMsUnits, out string? error)
+    public static bool TryParseTimerMs(string text, out byte tenMsUnits, out string? error)
     {
         tenMsUnits = 0;
         error = null;
@@ -70,7 +70,7 @@ internal sealed record ChannelParams(byte? TxDelay, byte? Persist, byte? SlotTim
     }
 
     /// <summary>Persistence, 0 to 255 raw, as kissparms(8) took it.</summary>
-    internal static bool TryParsePersist(string text, out byte value, out string? error)
+    public static bool TryParsePersist(string text, out byte value, out string? error)
     {
         value = 0;
         error = null;
@@ -89,7 +89,7 @@ internal sealed record ChannelParams(byte? TxDelay, byte? Persist, byte? SlotTim
     /// Send whatever was asked for, in KISS command order (TXDELAY, P,
     /// SlotTime, TXTail). Only the parameters that were given are sent.
     /// </summary>
-    internal async Task ApplyAsync(ICsmaChannelParams target, CancellationToken ct)
+    public async Task ApplyAsync(ICsmaChannelParams target, CancellationToken ct)
     {
         if (TxDelay is { } txDelay) await target.SetTxDelayAsync(txDelay, ct).ConfigureAwait(false);
         if (Persist is { } persist) await target.SetPersistenceAsync(persist, ct).ConfigureAwait(false);

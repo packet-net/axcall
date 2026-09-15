@@ -27,10 +27,10 @@ namespace Axcall;
 /// 18:45:52.004 &lt; GB7RDG>M0LTE-7 RR R F nr=1
 /// </code>
 /// </remarks>
-internal static class FrameTrace
+public static class FrameTrace
 {
     /// <summary>Format one traced frame. Never throws: tracing must not take the link down.</summary>
-    internal static string Format(Ax25FrameEventArgs e)
+    public static string Format(Ax25FrameEventArgs e)
     {
         var sb = new StringBuilder(80);
 

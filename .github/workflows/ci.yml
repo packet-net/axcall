@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: build
-        run: dotnet build tests/Axcall.Tests/Axcall.Tests.csproj --nologo
+        run: dotnet build Axcall.slnx --nologo
 
       # Runs unit + integration tests. The integration tests require Docker
       # (Testcontainers spins up net-sim + LinBPQ); the runner is expected to

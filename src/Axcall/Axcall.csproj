@@ -54,9 +54,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Axcall.Core\Axcall.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Packet.Core" />
     <PackageReference Include="Packet.Ax25" />
-    <PackageReference Include="Packet.Ax25.Transport.Abstractions" />
     <PackageReference Include="Packet.Kiss" />
     <PackageReference Include="Packet.Kiss.Serial" />
   </ItemGroup>

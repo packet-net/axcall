@@ -17,7 +17,7 @@ namespace Axcall;
 /// This is where they belong: "this radio needs 300 ms of TX delay" is a fact
 /// about the port, not about a call made over it.
 /// </param>
-internal sealed record PortEntry(
+public sealed record PortEntry(
     string Name,
     Callsign? Callsign,
     TransportSpec Transport,
@@ -65,19 +65,19 @@ internal sealed record PortEntry(
 /// not quietly changed into "unknown port".
 /// </para>
 /// </remarks>
-internal static class PortsFile
+public static class PortsFile
 {
     /// <summary>
     /// Overrides both search paths when set, and is the only path consulted.
     /// Exists so tests can point at a temporary file, and so a script can pin
     /// its own.
     /// </summary>
-    internal const string PathEnvVar = "AXCALL_PORTS";
+    public const string PathEnvVar = "AXCALL_PORTS";
 
-    internal const string SystemPath = "/etc/axcall/ports";
+    public const string SystemPath = "/etc/axcall/ports";
 
     /// <summary>~/.config/axcall/ports, honouring XDG_CONFIG_HOME.</summary>
-    internal static string? UserPath
+    public static string? UserPath
     {
         get
         {
@@ -87,7 +87,7 @@ internal static class PortsFile
     }
 
     /// <summary>The files consulted, in load order, whether or not they exist.</summary>
-    internal static IReadOnlyList<string> SearchPaths()
+    public static IReadOnlyList<string> SearchPaths()
     {
         var pinned = Environment.GetEnvironmentVariable(PathEnvVar);
         if (!string.IsNullOrEmpty(pinned))
@@ -102,7 +102,7 @@ internal static class PortsFile
     /// not there; the two read differently, and the "not there" message lists
     /// what is, because a typo in a port name is the likeliest cause.
     /// </summary>
-    internal static bool TryResolve(string name, out PortEntry? entry, out string? error)
+    public static bool TryResolve(string name, out PortEntry? entry, out string? error)
     {
         entry = null;
 
@@ -127,7 +127,7 @@ internal static class PortsFile
     /// replacing same-named entries from earlier ones. A missing file is not an
     /// error; an unreadable or malformed one is.
     /// </summary>
-    internal static bool TryLoad(out Dictionary<string, PortEntry>? entries, out string? error)
+    public static bool TryLoad(out Dictionary<string, PortEntry>? entries, out string? error)
         => TryLoad(SearchPaths(), out entries, out error);
 
     /// <summary>
@@ -135,7 +135,7 @@ internal static class PortsFile
     /// over an explicit path list, so the merge can be exercised without
     /// standing up the real search paths.
     /// </summary>
-    internal static bool TryLoad(IReadOnlyList<string> paths, out Dictionary<string, PortEntry>? entries, out string? error)
+    public static bool TryLoad(IReadOnlyList<string> paths, out Dictionary<string, PortEntry>? entries, out string? error)
     {
         entries = new Dictionary<string, PortEntry>(StringComparer.Ordinal);
         error = null;
@@ -176,7 +176,7 @@ internal static class PortsFile
     /// Parse one line. A blank or comment line yields a null entry and true:
     /// nothing to add, nothing wrong.
     /// </summary>
-    internal static bool TryParseLine(string line, out PortEntry? entry, out string? error)
+    public static bool TryParseLine(string line, out PortEntry? entry, out string? error)
     {
         entry = null;
         error = null;
