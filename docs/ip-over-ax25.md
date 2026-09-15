@@ -150,7 +150,7 @@ That was as far as this went for a while, and the standing assumption was that V
 
 **A static route table, because a TUN device is NOARP.** The kernel hands the packet over and never asks who owns the address, so the map is the whole of how a packet finds a station rather than a cache in front of discovery.
 
-**Answer ARP anyway, and remember what answers.** Otherwise nobody who has not hand-configured us can reach us. A station heard on the air is remembered for an hour with the reverse of the digipeater path it arrived by, so anything behind a digi becomes reachable without being written down. The config file always wins over anything heard.
+**Answer ARP anyway, and remember what answers.** Otherwise nobody who has not hand-configured us can reach us. A station heard direct is remembered for an hour, so it becomes reachable without being written down, and the config file always wins over anything heard. A station heard through a repeater is delivered upward but not remembered: nothing here digipeats, so a reply sent direct would not reach it, and recording it would create a station that looks known and is not.
 
 **An MTU of 236.** Under everything measured, with room for a couple of digipeaters, and at 1200 baud the last twenty bytes are not what is slowing anything down.
 

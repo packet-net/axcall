@@ -161,7 +161,7 @@ sudo ip route add 192.168.7.0/24 via 44.131.20.2 dev ax0
 ```
 # /etc/axcall/axtun
 route 44.131.20.2      PN0TST
-route 44.131.91.0/24   GB7RDG-1 via WIDE1-1
+route 44.131.91.0/24   GB7RDG-1
 route default          GB7RDG-1
 ```
 
@@ -183,6 +183,8 @@ A peer configured for virtual circuit will open a session and send I-frames with
 
 **Digipeat UI frames.** We closed axcall's digipeater support as not planned (#35), on the grounds that layer-2 digipeating has no place in a modern connected-mode network. That reasoning does not carry over here. Digipeating a UI frame is addressing, not the session-path problem #35 was about, and without it nothing behind a digi is reachable, which rules out a lot of real AMPRNet paths. The two decisions are allowed to differ and should.
 
+*Reversed. `axtun` shipped with digipeater paths in its config and reversed them when learning a station heard through one; that has since been taken back out. The argument above is sound on its own terms and is not what decided it. The position across the packet.net suite is that layer 2 digipeating is not done anywhere, deliberately, and one tool making its own call on that is worse than the capability is worth. A route with a `via` on it is now refused rather than quietly sent direct, which is what `axcall` has always done.*
+
 ### Interoperability is a goal, not a property
 
 The encoding is the easy part and it interoperates: IP in AX.25 with PID 0xCC is universal, and `Ax25Pid.Ip` already names it. Everything that makes this actually talk to the installed base is behaviour, and has to be chosen deliberately:
@@ -191,7 +193,7 @@ The encoding is the easy part and it interoperates: IP in AX.25 with PID 0xCC is
 |---|---|---|
 | Accept VC as well as datagram | kernel routes set to `mode vc`, JNOS, BPQ | a VC-configured peer simply cannot reach us |
 | Answer ARP (PID 0xCD) | any peer without us in its static map | we are unreachable until someone hand-configures us |
-| Digipeated UI | anything behind a digi | large parts of AMPRNet are unreachable |
+| ~~Digipeated UI~~ | ~~anything behind a digi~~ | **Out of scope: this suite does not digipeat anywhere** |
 | ~~Van Jacobson header compression (PID 0x06)~~ | ~~JNOS and NOS-derived stacks~~ | **Wrong. JNOS does not do VJ over AX.25 either; see below** |
 
 The last one deserves more than a table row. `Ax25Pid` already names `CompressedTcpIp = 0x06` and `UncompressedTcpIp = 0x07`. VJ takes about 40 bytes of TCP/IP header down to about 5. Against a 236-byte MTU that is not a micro-optimisation, it is a meaningful fraction of every packet on a channel where a full frame already takes over a second. Any implementation that skips it is both slower and deaf to peers that use it.
@@ -218,7 +220,7 @@ That is what was done, and two rows of the table above came out differently once
 
 **Nothing does Van Jacobson compression over AX.25.** LinBPQ's layer 2 dispatches PID 0xCC, 0xCD and 0x08 and nothing else. XRouter's manuals never mention compression. And JNOS, the implementation the row was named after, has the full RFC 1144 codec in `slhc.c` wired to SLIP and PPP, with no AX.25 source file referencing it and no PID defined for it. Three implementations, none of them doing the thing the design document said we had to interoperate with. `axtun` ships without it, and that is a finding rather than a scope decision.
 
-**A TUN device is NOARP, which makes the route table structural.** The kernel never asks who owns an address on this link; it hands the packet over. So the static map is not an optimisation that could be replaced by discovery later, it is the whole of how a packet finds a station. Answering ARP is what stops that being a closed world: a station that ARPs for us is remembered for an hour, with the reverse of the path it arrived by, so anything behind a digipeater becomes reachable without being written down.
+**A TUN device is NOARP, which makes the route table structural.** The kernel never asks who owns an address on this link; it hands the packet over. So the static map is not an optimisation that could be replaced by discovery later, it is the whole of how a packet finds a station. Answering ARP is what stops that being a closed world: a station that ARPs for us direct is remembered for an hour, so it becomes reachable without being written down.
 
 **The default-deny filter needed a defensible default, not just a mechanism.** A policy that allows nothing is the purest reading and also means every first run looks broken, which teaches people to turn the filter off. What shipped is: ping, TCP and UDP to a unicast address, with the loud ports (NetBIOS, SMB, mDNS, LLMNR, SSDP, WS-Discovery, DHCP) taken back out, and two things no ordinary rule can override. A multicast, broadcast or link-local destination needs a rule that names its range, because a wildcard rule was written by somebody thinking about unicast. And anything that is not IPv4 never reaches the filter at all, because a packet whose shape is not understood cannot be judged.
 

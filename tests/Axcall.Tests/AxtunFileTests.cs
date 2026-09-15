@@ -64,19 +64,17 @@ public class AxtunFileTests : IDisposable
     }
 
     /// <summary>
-    /// #35 closed layer-2 digipeating for connected mode. That reasoning does
-    /// not carry here: digipeating a UI frame is addressing, not a session path
-    /// held open across somebody else's retries, and without it nothing behind
-    /// a digi is reachable at all.
+    /// Digipeating is not done anywhere in this suite, for connected mode or
+    /// for IP, so a route through one is refused rather than quietly sent
+    /// direct. A station that looks configured and is unreachable is worse
+    /// than one that fails to start.
     /// </summary>
     [Fact]
-    public void A_Route_Can_Carry_A_Digipeater_Path()
+    public void A_Route_Through_A_Digipeater_Is_Refused_And_Says_Why()
     {
-        var config = Load("route 44.131.91.0/24 GB7RDG-1 via WIDE1-1,WIDE2-2");
-
-        var route = config.Lookup(Value("44.131.91.7"))!;
-        route.Digipeaters.Should().Equal([new Callsign("WIDE1", 1), new Callsign("WIDE2", 2)]);
-        route.ToString().Should().Contain("via WIDE1-1,WIDE2-2");
+        AxtunFile.TryParseLine("route 44.131.91.0/24 GB7RDG-1 via WIDE1-1", out _, out _, out var error)
+            .Should().BeFalse();
+        error.Should().Contain("digipeater paths are not supported");
     }
 
     [Fact]
@@ -127,10 +125,8 @@ public class AxtunFileTests : IDisposable
     [InlineData("route 44.131.20.2", "expected: route")]
     [InlineData("route notanaddress PN0TST", "is not an IPv4 address")]
     [InlineData("route 44.131.20.2 toolongforacallsign", "invalid callsign")]
-    [InlineData("route 44.131.20.2 PN0TST through WIDE1-1", "expected 'via'")]
-    [InlineData("route 44.131.20.2 PN0TST via", "needs a digipeater path")]
-    [InlineData("route 44.131.20.2 PN0TST via WIDE1-1 WIDE2-2", "one comma-separated list")]
-    [InlineData("route 44.131.20.2 PN0TST via toolongforacallsign", "invalid digipeater callsign")]
+    [InlineData("route 44.131.20.2 PN0TST through WIDE1-1", "a route is a prefix and a callsign")]
+    [InlineData("route 44.131.20.2 PN0TST via WIDE1-1", "digipeater paths are not supported")]
     [InlineData("allow nonsense", "is not a protocol")]
     public void A_Bad_Line_Fails_The_Load_And_Says_Where(string line, string expected)
     {
@@ -148,16 +144,6 @@ public class AxtunFileTests : IDisposable
         error.Should().BeNull();
         config!.Routes.Should().BeEmpty();
         config.Filter.IsDefault.Should().BeTrue("no config means the default policy, not no policy");
-    }
-
-    /// <summary>A digipeater path longer than the address field can hold.</summary>
-    [Fact]
-    public void A_Path_Longer_Than_The_Address_Field_Is_Rejected()
-    {
-        var path = string.Join(",", Enumerable.Range(1, AxtunFile.MaxDigipeaters + 1).Select(i => $"DIGI{i}"));
-
-        AxtunFile.TryParseLine($"route default GB7RDG via {path}", out _, out _, out var error).Should().BeFalse();
-        error.Should().Contain("at most");
     }
 
     private AxtunConfig Load(string text)

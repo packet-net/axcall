@@ -120,26 +120,27 @@ public class IpPacketTests
     /// <see cref="Ax25Ip.MaxFrameBytes"/>.
     /// </summary>
     [Fact]
-    public void The_Mtu_Shrinks_By_One_Address_Slot_Per_Digipeater()
+    public void The_Mtu_Is_The_Frame_Ceiling_Less_The_Header()
     {
-        Ax25Ip.MaxMtu(0).Should().Be(Ax25Ip.MaxFrameBytes - 16);
-        Ax25Ip.MaxMtu(1).Should().Be(Ax25Ip.MaxMtu(0) - 7);
-        Ax25Ip.MaxMtu(2).Should().Be(Ax25Ip.MaxMtu(0) - 14);
-        Ax25Ip.DefaultMtu.Should().BeLessThan(Ax25Ip.MaxMtu(2), "the default should leave room for a path");
+        Ax25Ip.MaxMtu().Should().Be(Ax25Ip.MaxFrameBytes - 16, "two addresses, control and PID");
+        Ax25Ip.DefaultMtu.Should().BeLessThan(Ax25Ip.MaxMtu(), "the default should leave headroom");
     }
 
+    /// <summary>
+    /// Everything goes direct: nothing in this suite digipeats, so a frame
+    /// never carries a repeater path.
+    /// </summary>
     [Fact]
-    public void A_Datagram_Frame_Carries_Pid_Cc_And_The_Digipeater_Path()
+    public void A_Datagram_Frame_Carries_Pid_Cc_And_Goes_Direct()
     {
         var frame = Ax25Ip.Datagram(
             new Callsign("GB7RDG"),
             new Callsign("M0LTE", 7),
-            Icmp("44.131.20.1", "44.131.20.2"),
-            [new Callsign("WIDE1", 1)]);
+            Icmp("44.131.20.1", "44.131.20.2"));
 
         frame.Pid.Should().Be(Ax25Pid.Ip);
         frame.IsUi.Should().BeTrue();
-        frame.Digipeaters.Should().ContainSingle().Which.Callsign.Should().Be(new Callsign("WIDE1", 1));
+        frame.Digipeaters.Should().BeEmpty();
     }
 
     private static byte[] Icmp(string source, string destination)

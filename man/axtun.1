@@ -62,7 +62,7 @@ classful default would be wrong almost every time.
 .TP
 .BI \-\-mtu " bytes"
 Interface MTU. The default is 236. Above 312 is allowed, with a warning: that
-is the most the only peer yet tested will accept, not a limit of AX.25. See
+is the most the peers tested will accept, not a limit of AX.25. See
 SIZES. Only meaningful with
 .BR \-\-addr ,
 since without it the interface is not reconfigured at all.
@@ -116,9 +116,11 @@ Inbound is the opposite.
 .B axtun
 answers AX.25 ARP for its own address, because refusing to would leave it
 undiscoverable by anyone who has not hand-configured it, which is most people.
-A station heard on the air is remembered for an hour, and a station heard
-through a digipeater is remembered with the reverse of the path it arrived by.
-Anything in the config file beats anything heard.
+A station heard direct is remembered for an hour, and anything in the config
+file beats anything heard. A station heard through a repeater is delivered
+upward but deliberately not remembered: nothing here digipeats, so a reply sent
+direct would not reach it, and recording it would create a station that looks
+known and is not.
 .PP
 When nothing knows how to reach an address,
 .B axtun
@@ -197,7 +199,7 @@ says so on standard error, once, naming what would have to be allowed.
 .nf
 # what reaches where
 route 44.131.20.2      PN0TST
-route 44.131.91.0/24   GB7RDG\-1 via WIDE1\-1
+route 44.131.91.0/24   GB7RDG\-1
 route default          GB7RDG\-1
 
 # what may go out
@@ -219,10 +221,11 @@ Longest prefix wins, as in any routing table.
 is the same as
 .BR 0.0.0.0/0 .
 .PP
+Routes are direct. Layer 2 digipeating is not done anywhere in this suite,
+for connected mode or for IP, so a route with a
 .B via
-gives a digipeater path, up to eight calls, comma separated. Each one costs
-seven bytes of every frame and a whole extra transmission, so two is already a
-long path for IP. Without it nothing behind a digipeater is reachable at all.
+on it is refused rather than quietly sent direct. Stations behind a repeater
+are not reachable.
 .SH PRIVILEGES
 Creating a TUN interface needs
 .BR CAP_NET_ADMIN ,
@@ -255,10 +258,10 @@ AX.25.
 .PP
 The largest frame LinBPQ will accept is 328 bytes. That is not from the
 specification: it discards any KISS frame over 329 bytes including the type
-byte, silently, with nothing on the air and nothing in its log. Each digipeater
-in the path takes another seven bytes off what is left. Hence a default MTU of
-236, which sits under all of it with room for a path; at 1200 baud the last
-twenty bytes are not what is slowing anything down.
+byte, silently, with nothing on the air and nothing in its log. That leaves 312
+bytes of payload, and hence a default MTU of 236, which sits under all of it
+with headroom; at 1200 baud the last twenty bytes are not what is slowing
+anything down.
 .PP
 .B \-\-mtu
 will go above that and print a warning rather than refusing, because a ceiling
