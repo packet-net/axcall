@@ -85,6 +85,7 @@ public sealed class IpOverAx25Tests
             frame => Ax25Ip.TryGetPayload(frame, Ax25Pid.Arp, out _),
             cts.Token);
 
+        if (reply is null) await DumpLogsAsync();
         reply.Should().NotBeNull("LinBPQ should answer an ARP request broadcast to QST");
 
         Ax25Ip.TryGetPayload(reply!, Ax25Pid.Arp, out var payload).Should().BeTrue();
@@ -130,6 +131,7 @@ public sealed class IpOverAx25Tests
             frame => Ax25Ip.TryGetPayload(frame, Ax25Pid.Arp, out _),
             cts.Token);
 
+        if (reply is null) await DumpLogsAsync();
         reply.Should().NotBeNull($"LinBPQ should answer an ARP request whatever the protocol type, and 0x{protocolType:X4} is one of the two in the field");
 
         Ax25Ip.TryGetPayload(reply!, Ax25Pid.Arp, out var payload).Should().BeTrue();
@@ -155,6 +157,7 @@ public sealed class IpOverAx25Tests
             frame => Ax25Ip.TryGetPayload(frame, Ax25Pid.Ip, out _),
             cts.Token);
 
+        if (reply is null) await DumpLogsAsync();
         reply.Should().NotBeNull("LinBPQ should answer a ping sent to its own address");
 
         Ax25Ip.TryGetPayload(reply!, Ax25Pid.Ip, out var payload).Should().BeTrue();
@@ -199,6 +202,7 @@ public sealed class IpOverAx25Tests
             count: 2,
             cts.Token);
 
+        if (fragments.Count != 2) await DumpLogsAsync();
         fragments.Should().HaveCount(2, "LinBPQ should split a 300 byte packet into two");
 
         foreach (var fragment in fragments)
@@ -258,7 +262,24 @@ public sealed class IpOverAx25Tests
             frame => Ax25Ip.TryGetPayload(frame, Ax25Pid.Ip, out _),
             cts.Token);
 
+        if (answered is null) await DumpLogsAsync();
         answered.Should().NotBeNull("a frame within the limit is still answered, so the silence above was the size");
+    }
+
+    /// <summary>
+    /// What the containers saw, for a failure on a machine that is not this one.
+    /// </summary>
+    /// <remarks>
+    /// net-sim logs every frame it carries and which node heard it, which is
+    /// the difference between "the peer ignored us" and "it never arrived".
+    /// Without this, a silent failure on a runner is unfalsifiable.
+    /// </remarks>
+    private async Task DumpLogsAsync()
+    {
+        output.WriteLine("=== netsim logs ===");
+        output.WriteLine(await fixture.GetNetsimLogsAsync().ConfigureAwait(false));
+        output.WriteLine("=== linbpq logs ===");
+        output.WriteLine(await fixture.GetLinbpqLogsAsync().ConfigureAwait(false));
     }
 
     /// <summary>Send one frame and wait for the first reply that matches.</summary>
@@ -319,7 +340,8 @@ public sealed class IpOverAx25Tests
 
         var bytes = outbound.ToBytes();
         var label = $"tx {outbound.Source.Callsign}>{outbound.Destination.Callsign} "
-            + $"pid={(outbound.Pid is { } p ? $"0x{p:X2}" : "none")} {outbound.Info.Length} bytes";
+            + $"pid={(outbound.Pid is { } p ? $"0x{p:X2}" : "none")} {outbound.Info.Length} bytes "
+            + $"({bytes.Length} on air)";
 
         while (!reader.IsCompleted && !window.IsCancellationRequested)
         {
