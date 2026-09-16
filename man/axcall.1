@@ -102,17 +102,18 @@ for extended (modulo 128, AX.25 v2.2). An extended dial falls back to modulo 8
 if the peer answers FRMR or DM, so the call still goes through. Inbound sessions
 use whichever the caller asks for.
 .IP
-An extended dial sends its SABME first and negotiates afterwards, so the
-parameters on the connect line are the ones this end offered. When the XID
-exchange settles on something else a round trip later, axcall says so:
+A dial negotiates before it connects, on either modulus, so the connect line is
+normally the agreed link and not merely what this end offered. Where the
+parameters do settle later - a peer that answers XID only once the link is up,
+or a dial made with
+.BR \-\-no\-xid ,
+which leaves an extended dial to negotiate after the UA - axcall says so on a
+second line:
 .IP
 .EX
-axcall: connected to GB7RDG (mod\-128, window 32, paclen 128, SREJ on)
+axcall: connected to GB7RDG (mod\-128, window 32, paclen 256, SREJ on)
 axcall: negotiated with GB7RDG (mod\-128, window 7, paclen 128, SREJ on)
 .EE
-.IP
-A modulo\-8 dial negotiates before it connects, so its connect line is already
-the agreed one and no second line follows.
 .TP
 .BI \-T " timeout"
 Close the connection automatically when no data has been transferred in either
@@ -310,11 +311,13 @@ The ports file is usually the better home for these: that a radio needs 300 ms
 of TX delay is a fact about the port, not about a call made over it.
 .TP
 .B \-\-no\-xid
-Skip the XID exchange sent before the SABM on a modulo\-8 dial. Without it axcall
-offers SREJ (selective retransmit) and its window; with it the link is plain
-go\-back\-N. Outbound only; an accepted
+Skip the XID exchange sent before the SABM(E). Without it a dial offers its
+window, paclen, timers and SREJ and the peer's answer settles them before the
+link is made; with it a modulo\-8 link is plain go\-back\-N with nothing
+negotiated, and a
 .B \-m e
-dial negotiates XID after the UA regardless.
+dial falls back to negotiating after the UA. Outbound only; an inbound call is
+answered whenever its XID arrives.
 .TP
 .BR \-V ", " \-\-version
 The same as

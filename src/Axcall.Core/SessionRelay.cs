@@ -70,10 +70,12 @@ public sealed record SessionRelayOptions
     public TimeSpan? AckDelay { get; init; }
 
     /// <summary>
-    /// Skip the XID exchange the library runs before the SABM on a modulo-8
-    /// dial. Off by default: the dial offers SREJ and its window, and the peer
-    /// that answers gets selective retransmit. On, the link is plain go-back-N.
-    /// Outbound only; the inbound answerer is untouched.
+    /// Skip the XID exchange the library sends before the SABM(E). Off by default:
+    /// the dial offers its window, paclen, timers and SREJ, and the peer's answer
+    /// settles them before the link is made, which is what section 6.3.2 asks for.
+    /// On, a modulo-8 dial is plain go-back-N with nothing negotiated, and a
+    /// modulo-128 dial falls back to negotiating after the UA. Outbound only; the
+    /// inbound answerer replies to an XID whenever one arrives.
     /// </summary>
     public bool NoXid { get; init; }
 
