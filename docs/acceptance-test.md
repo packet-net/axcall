@@ -170,18 +170,18 @@ On **radio1**:
 axcall -m e -w 32 -p 128 -d radio CALL2
 ```
 
-Expect: `SABME` answered by `UA`, then an `XID` exchange in the trace, and each end reporting `mod-128`. Where an end offered something the negotiation then changed, it says so a round trip later. Here radio2 offered the default 256-byte paclen and the link settled on radio1's 128:
+Expect the trace to open with an `XID` exchange, *then* `SABME` answered by `UA`: parameters are negotiated before the connection, so both ends report the agreed link rather than their own offer. Both status lines should therefore be identical apart from the callsign:
 
 ```
-axcall: connection from CALL1 (mod-128, window 32, paclen 256, SREJ on)
-axcall: negotiated with CALL1 (mod-128, window 32, paclen 128, SREJ on)
+axcall: connected to CALL2 (mod-128, window 32, paclen 128, SREJ on)        (radio1)
+axcall: connection from CALL1 (mod-128, window 32, paclen 128, SREJ on)     (radio2)
 ```
 
-radio1 offered what the link settled on, so it prints no second line.
+A second `negotiated with ...` line is the exception, not the rule: it means the parameters settled after the link came up, which happens with `--no-xid` or against a peer that answers XID only once connected.
 
-Type a line each way and check the trace: `ns=` should count up past 7 if you send enough, and the two ends should agree on the same window and paclen once negotiation has landed.
+Type a line each way and check the trace: `ns=` should count up past 7 if you send enough, and the two ends should agree on the same window and paclen.
 
-*Proves:* v2.2 establishment and XID. The window and paclen are notifications of what each station can receive, so each settles on the lesser of the two offers: `-w 100` against a station offering 7 gets you 7, which is why this step sets the window at both ends. Two ends still reporting different numbers after the negotiated line is a bug. Expect `SREJ on` between two of these: a v2.2 link selects selective reject and both ends offer it. That is also why the window is worth keeping at or below 64 here, because SREJ holds it to half the modulus and a larger one reports itself as `window 100 (64 in effect)`. A peer that is modulo-8 only answers FRMR or DM and the dial falls back to `mod-8`, which is a pass for this step too, just not a test of it.
+*Proves:* v2.2 establishment and XID, in the order section 6.3.2 asks for. The window and paclen are notifications of what each station can receive, so each settles on the lesser of the two offers: `-w 100` against a station offering 7 gets you 7, which is why this step sets the window at both ends. Two ends reporting different numbers is a bug. Expect `SREJ on` between two of these: a v2.2 link selects selective reject and both ends offer it. That is also why the window is worth keeping at or below 64 here, because SREJ holds it to half the modulus and a larger one reports itself as `window 100 (64 in effect)`. A peer that is modulo-8 only answers FRMR or DM and the dial falls back to `mod-8`, which is a pass for this step too, just not a test of it; a peer that answers no XID at all costs the dial a few seconds before the SABME and then connects on the defaults.
 
 **2.4 Keep the link up after input ends:**
 

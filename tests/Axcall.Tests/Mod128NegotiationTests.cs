@@ -8,13 +8,13 @@ namespace Axcall.Tests;
 /// What each end reports about a modulo-128 link, and when.
 /// </summary>
 /// <remarks>
-/// A modulo-8 dial negotiates before the SABM, so the connect line is already the
-/// truth. A modulo-128 dial sends the SABME first and the XID after it, and the
-/// answering end has sent its UA before the caller's XID command arrives - so the
-/// first line either end can print is its own offer, not the agreed values. k and
-/// N1 are notifications of receive capacity (section 4.3.3.7), so the agreed value
-/// is the lesser of the two offers: a wide window asked for at one end only is
-/// negotiated straight back down to what the other end advertised.
+/// A dial negotiates before the connection on either modulus (section 6.3.2: "Parameter
+/// negotiation occurs only before the connection is made"), so both ends print the agreed
+/// link rather than their own offer. k and N1 are notifications of receive capacity
+/// (section 4.3.3.7), so the agreed value is the lesser of the two: a wide window asked for
+/// at one end only comes straight back down to what the other end advertised. The second
+/// "negotiated with" line is for the case where the parameters settle after the link is up
+/// instead, which is what `--no-xid` leaves an extended dial doing.
 /// </remarks>
 public sealed class Mod128NegotiationTests
 {
@@ -50,21 +50,21 @@ public sealed class Mod128NegotiationTests
         await Task.Delay(200, cts.Token);
         var connect = Task.Run(() => connectorRelay.ConnectAndRelayAsync(Listener, cts.Token), CancellationToken.None);
 
-        await WaitForText(connectorStatus, "negotiated with", cts.Token);
-        await WaitForText(listenerStatus, "negotiated with", cts.Token);
+        await WaitForText(connectorStatus, "connected to AXLSTN-1", cts.Token);
+        await WaitForText(listenerStatus, "connection from AXCONN-2", cts.Token);
+        await Task.Delay(1000, cts.Token);   // give a late second line every chance to appear
 
         var caller = connectorStatus.Snapshot();
         var answerer = listenerStatus.Snapshot();
 
-        // What each end offered, reported the moment the link came up. A v2.2 link
-        // selects selective reject at establishment, and with SREJ in effect the window
-        // is held to half the modulus, so the caller's 100 runs at 64 and says so.
-        caller.Should().Contain("connected to AXLSTN-1 (mod-128, window 100 (64 in effect), paclen 128, SREJ on)");
-        answerer.Should().Contain("connection from AXCONN-2 (mod-128, window 7, paclen 256, SREJ on)");
+        // Settled before either end connected: the caller's 100 came down to the 7 the
+        // answerer advertised, the answerer's 256 paclen down to the caller's 128, and
+        // both ends say the same thing first time.
+        caller.Should().Contain("connected to AXLSTN-1 (mod-128, window 7, paclen 128, SREJ on)");
+        answerer.Should().Contain("connection from AXCONN-2 (mod-128, window 7, paclen 128, SREJ on)");
 
-        // What they agreed a round trip later: the lesser of each.
-        caller.Should().Contain("negotiated with AXLSTN-1 (mod-128, window 7, paclen 128, SREJ on)");
-        answerer.Should().Contain("negotiated with AXCONN-2 (mod-128, window 7, paclen 128, SREJ on)");
+        caller.Should().NotContain("negotiated with", "nothing settled after the connect");
+        answerer.Should().NotContain("negotiated with");
 
         await cts.CancelAsync();
         await Swallow(connect);
@@ -97,6 +97,41 @@ public sealed class Mod128NegotiationTests
         await Task.Delay(1500, cts.Token);
 
         connectorStatus.Snapshot().Should().NotContain("negotiated with");
+
+        await cts.CancelAsync();
+        await Swallow(connect);
+        await Swallow(listen);
+    }
+
+    [Fact]
+    public async Task With_No_Xid_A_Mod128_Dial_Reports_The_Late_Negotiation()
+    {
+        // --no-xid skips the exchange that would run before the SABME, so the link comes
+        // up on this end's offer and the library's post-UA negotiation settles it a round
+        // trip later. That is the case the second status line exists for.
+        using var cts = new CancellationTokenSource(Budget);
+        var (a, b) = LoopbackTransport.CreatePair(TimeSpan.FromMilliseconds(250));
+
+        var connectorStatus = new CapturingWriter();
+
+        var listenerRelay = new SessionRelay(
+            a, Listener, new ScriptedReader([]), new CapturingWriter(),
+            new SessionRelayOptions { Window = 7 }, new CapturingWriter());
+        var connectorRelay = new SessionRelay(
+            b, Connector, new ScriptedReader([]), new CapturingWriter(),
+            new SessionRelayOptions { Mod128 = true, Window = 100, Paclen = 128, NoXid = true }, connectorStatus);
+
+        var listen = Task.Run(() => listenerRelay.ListenAndRelayAsync(cts.Token), CancellationToken.None);
+        await Task.Delay(200, cts.Token);
+        var connect = Task.Run(() => connectorRelay.ConnectAndRelayAsync(Listener, cts.Token), CancellationToken.None);
+
+        await WaitForText(connectorStatus, "negotiated with", cts.Token);
+        var caller = connectorStatus.Snapshot();
+
+        // The connect line is this end's offer, because nothing had been agreed yet. With
+        // SREJ in effect the window is held to half the modulus, so 100 runs at 64.
+        caller.Should().Contain("connected to AXLSTN-1 (mod-128, window 100 (64 in effect), paclen 128, SREJ on)");
+        caller.Should().Contain("negotiated with AXLSTN-1 (mod-128, window 7, paclen 128, SREJ on)");
 
         await cts.CancelAsync();
         await Swallow(connect);
