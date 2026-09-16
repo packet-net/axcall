@@ -337,6 +337,8 @@ Expect: the **first packet lost**, the rest succeeding.
 ssh CALL2@44.131.20.2        # or: curl http://44.131.20.2/ if you run a web server
 ```
 
+*Remember:* `ssh` is encrypted, and encryption over the air is not permitted on some countries' licences, in particular the UK. Test over coax + attenuators.
+
 *Proves:* the thing this tool exists for. Software that has never heard of AX.25, working over radio.
 
 **5.5 Measure it.** Copy a small file and time it:
@@ -344,6 +346,8 @@ ssh CALL2@44.131.20.2        # or: curl http://44.131.20.2/ if you run a web ser
 ```sh
 time scp /tmp/send.bin 44.131.20.2:/tmp/
 ```
+
+*Remember:* `scp` is encrypted, and encryption over the air is not permitted on some countries' licences, in particular the UK. Test over coax + attenuators.
 
 Write the number down. At 1200 baud expect it to be painful; the tool becomes useful at 9600 and above, and this is where you find out what your link really does.
 
