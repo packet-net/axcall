@@ -282,6 +282,27 @@ jobs:
           prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
           files: dist/*
 
+      - name: Notify apt repo
+        if: github.event.inputs.dry_run != 'true'
+        env:
+          APT_DISPATCH_TOKEN: ${{ secrets.APT_DISPATCH_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        # POSTs a release-published repository_dispatch at packet-net/apt, so the apt index
+        # picks this release up in about a minute instead of waiting for its daily self-heal
+        # cron. Needs a fine-grained PAT (Contents: Read and write on packet-net/apt only) as
+        # the APT_DISPATCH_TOKEN secret; warns rather than fails when it's missing, so a
+        # release never fails over it. See packet-net/apt's README, "How it works".
+        run: |
+          if [ -z "$APT_DISPATCH_TOKEN" ]; then
+            echo "::warning::APT_DISPATCH_TOKEN is not set, so packet-net/apt will pick this release up on its next scheduled rebuild instead of immediately"
+            exit 0
+          fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $APT_DISPATCH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/packet-net/apt/dispatches \
+            -d "{\"event_type\":\"release-published\",\"client_payload\":{\"repo\":\"${{ github.repository }}\",\"tag\":\"$TAG\"}}"
+
       - name: Dry run summary
         if: github.event.inputs.dry_run == 'true'
         run: |
