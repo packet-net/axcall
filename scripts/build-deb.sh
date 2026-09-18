@@ -226,7 +226,9 @@ COPYRIGHT
 
   mkdir -p "$root/artifacts"
   # --root-owner-group (dpkg >= 1.19): root:root files without fakeroot.
-  dpkg-deb --build --root-owner-group "$stage" "$out"
+  # -Zxz: pin xz - dpkg-deb's zstd default (dpkg >= 1.21.18) can't be unpacked by
+  # Debian Bullseye's dpkg, so a zstd .deb refuses to install there.
+  dpkg-deb --build --root-owner-group -Zxz "$stage" "$out"
 
   echo "==> built $out"
   # Pure diagnostics from here. pipefail off: a `… | grep` that does not match,
