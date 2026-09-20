@@ -128,6 +128,28 @@ declare -A soname_to_pkg=(
   [libz.so.1]=zlib1g
 )
 
+# Every ELF under one package's staging root, which is the set its Depends line has to
+# cover, and the argument is the staging root so that each package is measured against
+# its own files and never against another's. Whatever a package ships, it must be able
+# to load: the executable and the native shims beside it are linked separately and do
+# not share a floor, so reading the executable alone understates the package the moment
+# a shim is built against something newer. That is this same bug deferred, and worse for
+# being deferred, since the program then installs, starts and prints its version, and
+# only dies later when .NET dlopens the shim. Discovering the files rather than listing
+# them means a shim added in future is covered without anyone remembering to.
+#
+# ELF is detected by its magic bytes. `file` would be the obvious tool and is not in
+# Essential, so it need not exist on a build host; od is in coreutils and always does.
+elf_files() {
+  find "$1" -type f -print | while IFS= read -r f; do
+    # An `if` rather than `[ ... ] && printf`: under `set -e` the AND form makes the
+    # loop body fail on every non-ELF file, which is most of them.
+    if [ "$(od -An -tx1 -N4 "$f" 2>/dev/null | tr -d ' \n')" = "7f454c46" ]; then
+      printf '%s\n' "$f"
+    fi
+  done
+}
+
 # The highest symbol version of one library family (GLIBC, GLIBCXX) that these files
 # ask the loader for. .gnu.version_r is the authoritative record of it: precisely the
 # list the loader checks before it will start the binary. Reading it beats asserting a
@@ -228,12 +250,18 @@ COPYRIGHT
     | gzip -9nc > "$stage/usr/share/doc/$pkg/changelog.Debian.gz"
   chmod 0644 "$stage/usr/share/doc/$pkg/changelog.Debian.gz"
 
-  local depends="" soname dep
+  # Everything below is read off the staged tree, so it describes this package and only
+  # this package. The staging is finished by now, so the set is the one that ships.
+  local -a elfs
+  mapfile -t elfs < <(elf_files "$stage")
+  [ "${#elfs[@]}" -gt 0 ] || { echo "no ELF files staged for $pkg" >&2; exit 1; }
+
+  local depends="" soname dep elf
   while read -r soname; do
     dep="${soname_to_pkg[$soname]:-}"
     [ -n "$dep" ] || { echo "unmapped shared library dependency: $soname" >&2; exit 1; }
     case ",$depends," in *",$dep,"*) ;; *) depends="${depends:+$depends,}$dep" ;; esac
-  done < <(objdump -p "$pub/$pkg" "${native_libs[@]}" | awk '/NEEDED/ {print $2}' | sort -u)
+  done < <(for elf in "${elfs[@]}"; do objdump -p "$elf"; done | awk '/NEEDED/ {print $2}' | sort -u)
 
   # A bare package name is not enough for libc6 and libstdc++6. The loader checks
   # symbol versions before it will run anything, so a package that asks for "libc6"
@@ -246,13 +274,13 @@ COPYRIGHT
   # linux-arm runtime pack, which moved from glibc 2.16 on .NET 8 to 2.34 on .NET 10,
   # past Debian 11's 2.31, with nothing announcing it. On the AOT targets it comes from
   # whatever machine linked them, so it moves when the release runner image does.
-  # Measure both, from the same files the dependency list came from: a package is only
-  # as portable as its least portable file, and the native shim ships inside it too.
+  # Measure both across the whole staged set, the same files the dependency list came
+  # from: a package is only as portable as its least portable file.
   local glibc_min glibcxx_min stdcxx_min entry versioned=""
-  glibc_min="$(max_needed GLIBC "$pub/$pkg" "${native_libs[@]}")"
-  glibcxx_min="$(max_needed GLIBCXX "$pub/$pkg" "${native_libs[@]}")"
+  glibc_min="$(max_needed GLIBC "${elfs[@]}")"
+  glibcxx_min="$(max_needed GLIBCXX "${elfs[@]}")"
   [ -n "$glibc_min" ] || {
-    echo "no GLIBC symbol versions in $pub/$pkg - a self-contained .NET build always has some" >&2
+    echo "no GLIBC symbol versions in $pkg - a self-contained .NET build always has some" >&2
     exit 1; }
 
   if [ -n "$glibcxx_min" ]; then
