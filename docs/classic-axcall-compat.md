@@ -83,7 +83,9 @@ The `axcall` package declares `Conflicts: ax25-apps` and `Replaces: ax25-apps`, 
 
 No `/etc/axcall/ports` is shipped. It would be a dpkg conffile and would prompt on every upgrade, so the example goes to `/usr/share/doc/axcall/examples/ports` and you copy it. A missing ports file is not an error: axcall reads it as "no ports configured", and a device path or `host:port` works without one.
 
-`scripts/build-deb.sh <rid> <version>` builds one package locally, and `scripts/deb-install-smoke.sh <deb>` proves it installs, runs and purges on a pristine Debian and Ubuntu in throwaway containers. Both run in the release workflow.
+Debian 12 (bookworm) or newer, on every architecture. The binaries ask the dynamic loader for `GLIBC_2.34`, so Debian 11 (bullseye) at 2.31 cannot start them, and nor can 32-bit Raspberry Pi OS while it is still on that base. The armhf packages additionally want `GLIBCXX_3.4.30`, which is libstdc++6 from GCC 12, for the same reason. That is not a choice this repo makes: on armhf it is .NET's `linux-arm` runtime pack, which moved from glibc 2.16 on .NET 8 to 2.34 on .NET 10, and on the other two it is the glibc of the runner that links the NativeAOT build. The packages state those floors in `Depends`, so apt declines with "unmet dependencies" on a machine too old to run them rather than installing something that dies in the loader. Up to and including 0.11.1 they did not, and it did.
+
+`scripts/build-deb.sh <rid> <version>` builds one package locally, and `scripts/deb-install-smoke.sh <deb>` proves it installs, runs and purges on a pristine Debian and Ubuntu in throwaway containers. Both run in the release workflow. The floors are read with `readelf` at package time rather than written down here, so they follow the toolchain instead of going stale, and they are taken across every ELF a package stages rather than its executable alone, since the native shim beside it is linked separately and need not share its floor. The build fails if `readelf` is missing rather than falling back to an unversioned `Depends`.
 
 ## One thing classic did not have
 

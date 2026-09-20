@@ -65,6 +65,13 @@ if [ "$rid" = "linux-arm64" ] && [ "$(uname -m)" != "aarch64" ]; then
   exit 2
 fi
 
+# readelf reads the library version floors out of the published binaries (see the
+# Depends section in package_one). Refuse to build without it rather than quietly
+# emit an unversioned Depends: understating what a package needs is the whole bug
+# this is here to prevent, and a build that silently reintroduces it is worse than
+# one that stops. It is in binutils, the same package as the objdump below.
+command -v readelf >/dev/null || { echo "readelf not found - install binutils" >&2; exit 2; }
+
 # How to publish is the csproj's business, not this script's: NativeAOT
 # everywhere with a native runner, trimmed single-file plus ReadyToRun for
 # armhf. Passing PublishSingleFile here would fight the AOT builds, which
@@ -120,6 +127,48 @@ declare -A soname_to_pkg=(
   [libstdc++.so.6]="libstdc++6"
   [libz.so.1]=zlib1g
 )
+
+# Every ELF under one package's staging root, which is the set its Depends line has to
+# cover, and the argument is the staging root so that each package is measured against
+# its own files and never against another's. Whatever a package ships, it must be able
+# to load: the executable and the native shims beside it are linked separately and do
+# not share a floor, so reading the executable alone understates the package the moment
+# a shim is built against something newer. That is this same bug deferred, and worse for
+# being deferred, since the program then installs, starts and prints its version, and
+# only dies later when .NET dlopens the shim. Discovering the files rather than listing
+# them means a shim added in future is covered without anyone remembering to.
+#
+# ELF is detected by its magic bytes. `file` would be the obvious tool and is not in
+# Essential, so it need not exist on a build host; od is in coreutils and always does.
+elf_files() {
+  find "$1" -type f -print | while IFS= read -r f; do
+    # An `if` rather than `[ ... ] && printf`: under `set -e` the AND form makes the
+    # loop body fail on every non-ELF file, which is most of them.
+    if [ "$(od -An -tx1 -N4 "$f" 2>/dev/null | tr -d ' \n')" = "7f454c46" ]; then
+      printf '%s\n' "$f"
+    fi
+  done
+}
+
+# The highest symbol version of one library family (GLIBC, GLIBCXX) that these files
+# ask the loader for. .gnu.version_r is the authoritative record of it: precisely the
+# list the loader checks before it will start the binary. Reading it beats asserting a
+# number here, because the floor is a property of what was built and follows it when a
+# toolchain or a runtime pack moves it. "GLIBC_" cannot match inside "GLIBCXX_", so the
+# two families never overlap.
+max_needed() {
+  local family="$1" elf
+  shift
+  for elf in "$@"; do
+    # One file at a time. The section runs to the end of a file's dump, so feeding
+    # readelf the whole set at once would read a later file's version DEFINITIONS as
+    # this one's needs.
+    readelf --version-info "$elf" | awk '/Version needs section/,0'
+    # `|| true`: a family nothing asks for prints nothing and is a real answer, not a
+    # failure. The AOT targets link libstdc++ statically and need no GLIBCXX at all.
+  done | { grep -oE "${family}_[0-9][0-9.]*" || true; } \
+       | sed "s/^${family}_//" | sort -uV | tail -1
+}
 
 # Stage and build one package.
 package_one() {
@@ -201,13 +250,77 @@ COPYRIGHT
     | gzip -9nc > "$stage/usr/share/doc/$pkg/changelog.Debian.gz"
   chmod 0644 "$stage/usr/share/doc/$pkg/changelog.Debian.gz"
 
-  local depends="" soname dep
+  # Everything below is read off the staged tree, so it describes this package and only
+  # this package. The staging is finished by now, so the set is the one that ships.
+  local -a elfs
+  mapfile -t elfs < <(elf_files "$stage")
+  [ "${#elfs[@]}" -gt 0 ] || { echo "no ELF files staged for $pkg" >&2; exit 1; }
+
+  local depends="" soname dep elf
   while read -r soname; do
     dep="${soname_to_pkg[$soname]:-}"
     [ -n "$dep" ] || { echo "unmapped shared library dependency: $soname" >&2; exit 1; }
     case ",$depends," in *",$dep,"*) ;; *) depends="${depends:+$depends,}$dep" ;; esac
-  done < <(objdump -p "$pub/$pkg" "${native_libs[@]}" | awk '/NEEDED/ {print $2}' | sort -u)
-  depends="${depends//,/, }"
+  done < <(for elf in "${elfs[@]}"; do objdump -p "$elf"; done | awk '/NEEDED/ {print $2}' | sort -u)
+
+  # A bare package name is not enough for libc6 and libstdc++6. The loader checks
+  # symbol versions before it will run anything, so a package that asks for "libc6"
+  # without saying which libc6 installs perfectly happily onto a machine that cannot
+  # start it, and the user gets a dynamic-loader message they can do nothing with
+  # instead of apt declining up front and saying why. 0.11.1 shipped exactly that:
+  # armhf onto Debian 11, then "version `GLIBC_2.34' not found".
+  #
+  # Neither floor is a constant this repo may assert. On armhf it comes from .NET's
+  # linux-arm runtime pack, which moved from glibc 2.16 on .NET 8 to 2.34 on .NET 10,
+  # past Debian 11's 2.31, with nothing announcing it. On the AOT targets it comes from
+  # whatever machine linked them, so it moves when the release runner image does.
+  # Measure both across the whole staged set, the same files the dependency list came
+  # from: a package is only as portable as its least portable file.
+  local glibc_min glibcxx_min stdcxx_min entry versioned=""
+  glibc_min="$(max_needed GLIBC "${elfs[@]}")"
+  glibcxx_min="$(max_needed GLIBCXX "${elfs[@]}")"
+  [ -n "$glibc_min" ] || {
+    echo "no GLIBC symbol versions in $pkg - a self-contained .NET build always has some" >&2
+    exit 1; }
+
+  if [ -n "$glibcxx_min" ]; then
+    # libstdc++ versions its symbols by C++ ABI, not by package version, so this takes a
+    # table. Anchors measured against the distributions themselves: Debian 10 / GCC 8
+    # tops out at 3.4.25, Debian 11 / GCC 10 at 3.4.28, Debian 12 / GCC 12 at 3.4.30,
+    # Debian 13 / GCC 14 at 3.4.33. Unmeasured points round up to the next anchor,
+    # because the two errors are not equal: too high refuses an install that would have
+    # worked and says so, too low ships the loader crash this block exists to stop. A
+    # value not in the table is a GCC ABI nobody has checked, so stop rather than guess.
+    case "$glibcxx_min" in
+      3.4|3.4.[0-9]|3.4.1[0-9]|3.4.2[01]) stdcxx_min=5 ;;
+      3.4.22)        stdcxx_min=6 ;;
+      3.4.23|3.4.24) stdcxx_min=7 ;;
+      3.4.25)        stdcxx_min=8 ;;
+      3.4.26)        stdcxx_min=9 ;;
+      3.4.27|3.4.28) stdcxx_min=10 ;;
+      3.4.29)        stdcxx_min=11 ;;
+      3.4.30)        stdcxx_min=12 ;;
+      3.4.31|3.4.32) stdcxx_min=13 ;;
+      3.4.33)        stdcxx_min=14 ;;
+      3.4.34)        stdcxx_min=15 ;;
+      *) echo "unknown GLIBCXX_$glibcxx_min - extend the table in $0" >&2; exit 1 ;;
+    esac
+    # Anything asking for GLIBCXX symbols needs the package, whether or not the NEEDED
+    # scan above happened to name it.
+    case ",$depends," in *",libstdc++6,"*) ;; *) depends="${depends:+$depends,}libstdc++6" ;; esac
+  fi
+
+  # libgcc-s1 and zlib1g stay unversioned on purpose. The binaries ask libgcc only for
+  # GCC_3.0 and GCC_3.5, carried by every distribution in scope for twenty years, and
+  # zlib exports no symbol versions at all, so for those two there is no floor to state.
+  for entry in ${depends//,/ }; do
+    case "$entry" in
+      libc6)      entry="libc6 (>= $glibc_min)" ;;
+      libstdc++6) entry="libstdc++6 (>= $stdcxx_min)" ;;
+    esac
+    versioned="${versioned:+$versioned, }$entry"
+  done
+  depends="$versioned"
   echo "==> $pkg depends: $depends"
 
   # Installed-Size is in KiB, and dpkg-deb does not compute it for us.
