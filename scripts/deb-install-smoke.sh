@@ -20,9 +20,7 @@
 #      serial port to prove the native serial library is present, which an exit
 #      code alone does not show. axtun opens a TUN device before it looks at the
 #      modem, so it is checked against whichever of those it can reach.
-#   5. axcall takes over /usr/bin/axcall from ax25-apps, which owns that path,
-#      via the declared Conflicts + Replaces.
-#   6. `apt purge` removes them cleanly.
+#   5. `apt purge` removes them cleanly.
 #
 # The packages are installed together because that is the interesting case: one
 # per program, each carrying its own copy of the native library, so a path
@@ -116,6 +114,12 @@ if has axcall; then
   axcall radio gb7rdg >/dev/null 2>&1; rc=$?
   [ "$rc" -eq 2 ] || fail "unknown port: expected exit 2, got $rc"
 fi
+if has axlisten; then
+  # No port named and none configured: nothing to listen to, which is a usage
+  # error rather than a monitor sitting silent forever.
+  axlisten >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 2 ] || fail "axlisten with no ports: expected exit 2, got $rc"
+fi
 
 install -d /etc/axcall
 printf "radio  M0LTE-7  /dev/ttyUSB0:57600  256  4  smoke\n" > /etc/axcall/ports
@@ -195,20 +199,7 @@ fi
 
 rm -rf /etc/axcall
 
-if has axcall; then
-  echo "--- 5. axcall takes over /usr/bin/axcall from ax25-apps"
-  apt-get purge -y -qq axcall >/dev/null || fail "purge before the conflict test"
-  apt-get install -y -qq ax25-apps >/dev/null 2>&1 || { echo "    (ax25-apps not in this suite, skipping)"; SKIP_CONFLICT=1; }
-  if [ "${SKIP_CONFLICT:-0}" != "1" ]; then
-    [ -x /usr/bin/axcall ] || fail "ax25-apps did not provide /usr/bin/axcall"
-    apt-get install -y -qq ./axcall_*.deb || fail "install over ax25-apps (Conflicts/Replaces)"
-    dpkg -s ax25-apps 2>/dev/null | grep -q "Status: install ok installed" \
-      && fail "ax25-apps should have been removed by the Conflicts"
-    axcall --version | grep -q "^axcall " || fail "wrong axcall won after the takeover"
-  fi
-fi
-
-echo "--- 6. apt purge"
+echo "--- 5. apt purge"
 # shellcheck disable=SC2086
 apt-get purge -y -qq $PACKAGES >/dev/null || fail "apt purge"
 for pkg in $PACKAGES; do

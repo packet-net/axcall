@@ -5,8 +5,6 @@ Maintainer: Tom Fanning <tom@m0lte.uk>
 Installed-Size: @INSTALLED_SIZE@
 Depends: @DEPENDS@
 Suggests: axsocks
-Conflicts: ax25-apps
-Replaces: ax25-apps
 Section: hamradio
 Priority: optional
 Homepage: https://github.com/packet-net/axcall
@@ -22,6 +20,4 @@ Description: connected-mode AX.25 terminal over KISS
  is deliberately the old one, so existing scripts mostly carry over.
  .
  Self-contained: bundles its own .NET runtime, so no system runtime is
- required. Replaces ax25-apps, which owns the same /usr/bin/axcall; the rest
- of that package (axlisten, ax25ipd, ax25rtd, ax25mond) depends on the
- withdrawn kernel stack and no longer functions.
+ required.

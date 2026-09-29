@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\Tool.props" />
+
+  <PropertyGroup>
+    <AssemblyName>axlisten</AssemblyName>
+    <RootNamespace>Axlisten</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Axcall.Tests" />
+  </ItemGroup>
+
+  <!-- The decoders for what the frames carry. Only axlisten looks inside a
+       payload it is not party to, so they are referenced here rather than
+       from Tool.props. -->
+  <ItemGroup>
+    <PackageReference Include="Packet.Aprs" />
+    <PackageReference Include="Packet.NetRom" />
+  </ItemGroup>
+
+</Project>
