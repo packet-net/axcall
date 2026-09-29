@@ -7,7 +7,7 @@ Depends: @DEPENDS@
 Suggests: axcall
 Section: hamradio
 Priority: optional
-Homepage: https://github.com/packet-net/axcall
+Homepage: https://github.com/packet-net/pdn-ax25-tools
 Description: AX.25 channel monitor over KISS
  Shows every AX.25 frame a TNC hears, decoded: addresses and digipeaters,
  frame type, sequence numbers, and what the frame carries. Text is shown as

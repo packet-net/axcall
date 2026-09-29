@@ -6,7 +6,7 @@ Installed-Size: @INSTALLED_SIZE@
 Depends: @DEPENDS@
 Section: hamradio
 Priority: optional
-Homepage: https://github.com/packet-net/axcall
+Homepage: https://github.com/packet-net/pdn-ax25-tools
 Description: SOCKS5 proxy onto an AX.25 port
  Puts a SOCKS5 proxy in front of one AX.25 port. Every connection it accepts
  becomes a connected-mode AX.25 session to a callsign, and the bytes pass

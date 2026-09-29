@@ -7,7 +7,7 @@ Depends: @DEPENDS@
 Suggests: axsocks
 Section: hamradio
 Priority: optional
-Homepage: https://github.com/packet-net/axcall
+Homepage: https://github.com/packet-net/pdn-ax25-tools
 Description: connected-mode AX.25 terminal over KISS
  Dials a remote AX.25 station, pipes your keyboard to it and its replies to
  your screen, and disconnects cleanly. Line mode, 8 bit clean, transparent

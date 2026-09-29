@@ -226,7 +226,7 @@ package_one() {
   cat > "$stage/usr/share/doc/$pkg/copyright" <<COPYRIGHT
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: $pkg
-Source: https://github.com/packet-net/axcall
+Source: https://github.com/packet-net/pdn-ax25-tools
 
 Files: *
 Copyright: Tom Fanning M0LTE
@@ -246,7 +246,7 @@ License: AGPL-3.0-or-later
 COPYRIGHT
   chmod 0644 "$stage/usr/share/doc/$pkg/copyright"
 
-  printf '%s (%s) unstable; urgency=medium\n\n  * Release %s. See https://github.com/packet-net/axcall/releases/tag/v%s\n\n -- Tom Fanning <tom@m0lte.uk>  %s\n' \
+  printf '%s (%s) unstable; urgency=medium\n\n  * Release %s. See https://github.com/packet-net/pdn-ax25-tools/releases/tag/v%s\n\n -- Tom Fanning <tom@m0lte.uk>  %s\n' \
     "$pkg" "$deb_version" "$version" "$version" "$(date -R)" \
     | gzip -9nc > "$stage/usr/share/doc/$pkg/changelog.Debian.gz"
   chmod 0644 "$stage/usr/share/doc/$pkg/changelog.Debian.gz"
