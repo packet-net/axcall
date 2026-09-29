@@ -35,7 +35,7 @@ On **both** machines.
 uname -m          # aarch64 -> arm64,  armv7l -> armhf
 ```
 
-**0.2** Fetch the four packages for that architecture from the [latest release](https://github.com/packet-net/axcall/releases/latest) and install them together:
+**0.2** Fetch the four packages for that architecture from the [latest release](https://github.com/packet-net/pdn-ax25-tools/releases/latest) and install them together:
 
 ```sh
 sudo apt install ./axcall_*.deb ./axsocks_*.deb ./axinetd_*.deb ./axtun_*.deb

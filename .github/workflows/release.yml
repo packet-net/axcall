@@ -123,7 +123,7 @@ jobs:
             # One archive, because there is more than one tool now, but no
             # companion library: System.IO.Ports calls Win32 directly on
             # Windows.
-            dir="axcall-$TAG-$RID"
+            dir="pdn-ax25-tools-$TAG-$RID"
             rm -rf stage && mkdir -p "stage/$dir"
             cp "$PUB/axcall.exe" "$PUB/axsocks.exe" "$PUB/axinetd.exe" "$PUB/axlisten.exe" "stage/$dir/"
             # Compress-Archive rather than 7z: it is part of PowerShell, so it
@@ -144,7 +144,7 @@ jobs:
           # that is not AOT and self-extracts what it needs. It is packaged the
           # same way regardless, so that every Linux and macOS download has one
           # shape and nobody has to wonder why theirs is different.
-          dir="axcall-$TAG-$RID"
+          dir="pdn-ax25-tools-$TAG-$RID"
           rm -rf stage && mkdir -p "stage/$dir"
           tools="axcall axsocks axinetd axlisten"
           case "$RID" in linux-*) tools="$tools axtun" ;; esac
@@ -162,7 +162,7 @@ jobs:
           shopt -u nullglob
 
           {
-            printf 'axcall %s (%s)\n\n' "$TAG" "$RID"
+            printf 'pdn-ax25-tools %s (%s)\n\n' "$TAG" "$RID"
             printf 'axcall   dial a station and talk to it\n'
             printf 'axsocks  a SOCKS5 proxy onto the same port, for calling out\n'
             printf 'axinetd  run a program for whoever calls in\n'
@@ -177,7 +177,7 @@ jobs:
             printf 'put that directory on your PATH.\n\n'
             printf 'On Debian and Ubuntu, install the packages instead: one .deb per program,\n'
             printf 'so you get what you asked for, on your PATH, with a man page.\n\n'
-            printf 'https://github.com/packet-net/axcall\n'
+            printf 'https://github.com/packet-net/pdn-ax25-tools\n'
           } > "stage/$dir/README"
 
           tar -C stage -czf "dist/$dir.tar.gz" "$dir"
@@ -197,7 +197,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
-          dir="axcall-$TAG-${{ matrix.rid }}"
+          dir="pdn-ax25-tools-$TAG-${{ matrix.rid }}"
           rm -rf check && mkdir check
           tar -C check -xzf "dist/$dir.tar.gz"
 
@@ -241,7 +241,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: axcall-${{ matrix.rid }}
+          name: pdn-ax25-tools-${{ matrix.rid }}
           path: dist/*
           if-no-files-found: error
 
@@ -277,7 +277,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: axcall ${{ steps.tag.outputs.tag }}
+          name: pdn-ax25-tools ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
           # Tags with a prerelease label (e.g. v0.5.0-rc1) are marked
           # pre-release so they don't show as the latest stable build.

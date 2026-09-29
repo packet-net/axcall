@@ -6,7 +6,7 @@ Installed-Size: @INSTALLED_SIZE@
 Depends: @DEPENDS@
 Section: hamradio
 Priority: optional
-Homepage: https://github.com/packet-net/axcall
+Homepage: https://github.com/packet-net/pdn-ax25-tools
 Description: IP over AX.25 on a TUN device
  Carries IP over an AX.25 radio channel on a TUN device, so software that
  already exists works over radio: ping, ssh, UDP, and a route to a remote

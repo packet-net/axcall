@@ -6,7 +6,7 @@ Installed-Size: @INSTALLED_SIZE@
 Depends: @DEPENDS@
 Section: hamradio
 Priority: optional
-Homepage: https://github.com/packet-net/axcall
+Homepage: https://github.com/packet-net/pdn-ax25-tools
 Description: run a program for inbound AX.25 calls
  Answers inbound AX.25 calls. Each call either runs a program with the session
  on its standard input and output, or is forwarded to a local TCP service, so
