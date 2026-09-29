@@ -277,7 +277,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: pdn-ax25-tools ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
           # Tags with a prerelease label (e.g. v0.5.0-rc1) are marked
           # pre-release so they don't show as the latest stable build.
