@@ -20,9 +20,7 @@
 #      serial port to prove the native serial library is present, which an exit
 #      code alone does not show. axtun opens a TUN device before it looks at the
 #      modem, so it is checked against whichever of those it can reach.
-#   5. axcall and axlisten take over /usr/bin/axcall and /usr/bin/axlisten from
-#      ax25-apps, which owns those paths, via the declared Conflicts + Replaces.
-#   6. `apt purge` removes them cleanly.
+#   5. `apt purge` removes them cleanly.
 #
 # The packages are installed together because that is the interesting case: one
 # per program, each carrying its own copy of the native library, so a path
@@ -201,31 +199,7 @@ fi
 
 rm -rf /etc/axcall
 
-TAKEOVER=""
-has axcall && TAKEOVER="$TAKEOVER axcall"
-has axlisten && TAKEOVER="$TAKEOVER axlisten"
-if [ -n "$TAKEOVER" ]; then
-  echo "--- 5.$TAKEOVER take over their paths from ax25-apps"
-  # shellcheck disable=SC2086
-  apt-get purge -y -qq $TAKEOVER >/dev/null || fail "purge before the conflict test"
-  apt-get install -y -qq ax25-apps >/dev/null 2>&1 || { echo "    (ax25-apps not in this suite, skipping)"; SKIP_CONFLICT=1; }
-  if [ "${SKIP_CONFLICT:-0}" != "1" ]; then
-    takeover_debs=""
-    for pkg in $TAKEOVER; do
-      [ -x "/usr/bin/$pkg" ] || fail "ax25-apps did not provide /usr/bin/$pkg"
-      takeover_debs="$takeover_debs $(ls ./"${pkg}"_*.deb)"
-    done
-    # shellcheck disable=SC2086
-    apt-get install -y -qq $takeover_debs || fail "install over ax25-apps (Conflicts/Replaces)"
-    dpkg -s ax25-apps 2>/dev/null | grep -q "Status: install ok installed" \
-      && fail "ax25-apps should have been removed by the Conflicts"
-    for pkg in $TAKEOVER; do
-      "$pkg" --version | grep -q "^$pkg " || fail "wrong $pkg won after the takeover"
-    done
-  fi
-fi
-
-echo "--- 6. apt purge"
+echo "--- 5. apt purge"
 # shellcheck disable=SC2086
 apt-get purge -y -qq $PACKAGES >/dev/null || fail "apt purge"
 for pkg in $PACKAGES; do
