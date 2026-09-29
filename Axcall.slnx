@@ -3,6 +3,7 @@
     <Project Path="src/Axcall/Axcall.csproj" />
     <Project Path="src/Axcall.Core/Axcall.Core.csproj" />
     <Project Path="src/Axinetd/Axinetd.csproj" />
+    <Project Path="src/Axlisten/Axlisten.csproj" />
     <Project Path="src/Axsocks/Axsocks.csproj" />
     <Project Path="src/Axtun/Axtun.csproj" />
   </Folder>

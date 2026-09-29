@@ -1,0 +1,338 @@
+.TH AXLISTEN 1 "29 September 2026" "axcall" "Linux Programmer's Manual"
+.SH NAME
+axlisten \- show what is on an AX.25 channel
+.SH SYNOPSIS
+.B axlisten
+.RI [ options ]
+.RI [ port ...]
+.br
+.B axlisten \-\-classic
+.RB [ \-8achirt ]
+.RB [ \-p
+.IR port ]
+.SH DESCRIPTION
+.B axlisten
+prints every AX.25 frame a TNC hears, one header line per frame followed by
+what the frame carries, decoded. Text is shown as text; IP, ARP and NET/ROM,
+including routing broadcasts, get a one-line summary each; anything else is
+hex dumped.
+.PP
+It only receives. It never transmits, needs no callsign, and is safe to run on
+any port at any time.
+.PP
+Like
+.BR axcall (1),
+it speaks KISS to a TNC over a serial port or over TCP, and needs no kernel
+AX.25 stack. The kernel version listened on a packet socket and so also heard
+what the machine itself sent. A KISS TNC does not echo transmissions back to
+the host, so what another program sends through the same TNC is not shown.
+Everything on the air is.
+.SH OUTPUT
+The header line is the one
+.B axcall \-d
+prints, preceded by the time and the port:
+.PP
+.nf
+.RS
+18:45:51.123 radio  M0LTE\-7>GB7RDG SABM C P
+18:45:51.520 radio  GB7RDG>M0LTE\-7 UA R F
+18:45:51.521 radio  M0LTE\-7>GB7RDG I C P ns=0 nr=0 pid=F0 len=12
+                    Hello there
+18:45:52.004 radio  G4ABC\-1>APRS via WIDE1\-1*,WIDE2\-1 UI C pid=F0 len=24
+                    !5130.00N/00010.00W\-Test
+18:45:53.310 radio  GB7RDG>NODES UI C pid=CF len=48
+                    NET/ROM nodes from RDG, 2 routes
+                      CIP:GB7CIP        via GB7CIP    quality 200
+                      GB7XYZ            via GB7CIP    quality 150
+.RE
+.fi
+.PP
+After the addresses come the frame type, then
+.B C
+or
+.B R
+for command or response, then
+.B P
+or
+.B F
+where the poll/final bit is set, then whatever that frame type carries.
+A star after a digipeater means it has repeated the frame. A port that is one
+channel of a multi-channel TNC is shown with its KISS port number, as in
+.BR radio[1] .
+Where the TNC reports signal strength, it is appended as
+.B rssi=
+and
+.BR snr= .
+.PP
+Control characters in received text are shown as dots and never reach the
+terminal, since an escape sequence from anybody in range could otherwise
+rewrite it.
+.PP
+Colour is used when the output is a terminal, unless
+.B NO_COLOR
+is set or
+.B TERM
+is
+.BR dumb .
+.SS Modulo 128
+An I or S frame's control field is one octet on a modulo-8 link and two on a
+modulo-128 link, and the frame does not say which. A link that
+.B axlisten
+has seen set up with SABME is read as modulo 128 until it is disconnected. A
+link that was already up when it started is guessed at from the reserved bit
+in the source SSID, as the classic axlisten did. Many stations do not set that
+bit, so the I and S frames of such a link may be misread until it is next set
+up.
+.SH OPTIONS
+.TP
+.I port
+A port to listen on: a name from the ports file, a device path, or
+.IR host : port
+for a KISS-over-TCP modem. Give as many as you like; frames from all of them
+are interleaved in the order they arrive. See
+.BR axcall (1)
+for the ports file. Only the transport column is used: the callsign, window
+and paclen are for transmitting.
+.IP
+With no port, every port in the ports file is opened. One that cannot be
+opened, because it is unplugged or another program holds it, is skipped with a
+warning. Ports that name the same TNC are opened once.
+.TP
+.BI \-\-serial " device" [: baud ]
+.TQ
+.BI \-\-tcp " host" : port
+Name a transport directly. Either may be repeated.
+.TP
+.BI \-\-baud " rate"
+Serial baud rate for every serial port. Overrides a rate from the ports file.
+The default is 57600.
+.TP
+.BI \-\-call " callsign"
+Show only frames to, from or via this station. Without an SSID it matches
+every SSID; with one, only that one. May be repeated, and a frame matching any
+of them is shown.
+.TP
+.BR \-x ", " \-\-hex
+Hex dump every payload, as well as decoding it.
+.TP
+.B \-\-json
+One JSON object per frame, one per line, for a program to read. See JSON.
+.TP
+.BI \-\-color " when"
+.BR auto ,
+the default,
+.BR always ,
+or
+.BR never .
+.TP
+.B \-\-no\-color
+The same as
+.BR "\-\-color never" .
+.TP
+.B \-\-utc
+Timestamps in UTC, marked with a Z, rather than local time.
+.TP
+.B \-\-no\-time
+No timestamps. Useful under
+.BR journalctl (1),
+which adds its own.
+.TP
+.BR \-q ", " \-\-quiet
+No status messages on standard error. Frames and errors only.
+.TP
+.B \-\-classic
+The output and options of the ax25\-apps
+.BR axlisten .
+See CLASSIC MODE.
+.TP
+.BR \-h ", " \-\-help
+Usage. With
+.BR \-\-classic ,
+.B \-h
+is the hex dump, and only
+.B \-\-help
+is help.
+.TP
+.BR \-v ", " \-\-version
+Version, and the versions of the libraries it runs on.
+.SH JSON
+Each line is one object. Fields appear only where the frame carries them, so
+.B ns
+is only on I frames,
+.B nr
+only on I and S frames, and
+.B pid
+only where there is one.
+.PP
+.nf
+.RS
+{"time":"2026\-09\-14T18:45:51.123Z","port":"radio","kissPort":0,
+ "from":"G4ABC\-1","to":"APRS","via":[{"call":"WIDE1\-1","repeated":true}],
+ "type":"UI","cr":"command","pf":false,"pid":240,"len":5,
+ "info":"SGVsbG8=","text":"Hello"}
+.RE
+.fi
+.PP
+.B info
+is the information field in base64, always present when the field is not
+empty.
+.B text
+is added when it reads as text.
+.B cr
+is
+.BR command ,
+.B response
+or null for a version 1 frame that is neither.
+.B mod128
+is true on a frame read as modulo 128. A frame that cannot be decoded is
+reported with
+.B error
+and its bytes as
+.BR raw .
+.SH CLASSIC MODE
+.B \-\-classic
+prints what the
+.B axlisten
+from ax25\-apps printed, for scripts, log parsers and habits formed on it:
+.PP
+.nf
+.RS
+radio: fm M0LTE\-7 to GB7RDG ctl SABM+ 18:45:51.123456
+radio: fm GB7RDG to M0LTE\-7 ctl UA\- 18:45:51.520112
+radio: fm M0LTE\-7 to GB7RDG ctl I00^ pid=F0(Text) len 5 18:45:51.521003
+0000  hello
+.RE
+.fi
+.PP
+and takes its options, which cluster as they did:
+.TP
+.B \-a
+Accepted and ignored. Every frame the TNC hears is shown anyway.
+.TP
+.B \-c
+Colour, in ANSI escapes rather than through curses.
+.TP
+.B \-h
+Hex dump the data, 16 bytes a line.
+.TP
+.B \-r
+Readable dump: the data as lines of text.
+.TP
+.B \-8
+Pass characters above 127. Without it they are shown as dots.
+.TP
+.B \-i
+With
+.BR \-8 ,
+map IBM code page 437 characters 128 to 159.
+.TP
+.BI \-p " port"
+Listen on this port. With none, every port in the ports file.
+.TP
+.B \-t
+Repeat to choose the timestamp:
+.B \-t
+none,
+.B \-tt
+Unix time,
+.B \-ttt
+time since the previous frame,
+.B \-tttt
+date and time,
+.B \-ttttt
+time since the first frame. Without it, local time of day.
+.PP
+.BR \-\-serial ,
+.BR \-\-tcp ,
+.BR \-\-baud ,
+.B \-\-call
+and ports given as arguments work here too.
+.PP
+The differences are deliberate. SREJ, XID and TEST are named rather than
+printed as
+.BR [invalid] .
+An I or UI frame with no PID, and a frame that ends after its addresses, still
+end their line. The protocol decoders the original carried for ARP, IP,
+NET/ROM, ROSE, FlexNet and OpenTRAC are not reproduced, so those payloads are
+dumped like any other data; the default output decodes the ones still on the
+air.
+.SH EXIT STATUS
+.TP
+.B 0
+Stopped with Ctrl\-C, or the program reading the output went away.
+.TP
+.B 2
+Usage error, including naming no port when none are configured.
+.TP
+.B 3
+A port named on the command line could not be opened, or none of the
+configured ports could.
+.PP
+A port that goes away once open is not an exit. It is reopened, retrying with
+a growing delay up to 30 seconds, for as long as
+.B axlisten
+runs, and each outage is reported on standard error.
+.SH EXAMPLES
+Everything, on every configured port:
+.PP
+.nf
+.RS
+axlisten
+.RE
+.fi
+.PP
+One station's traffic, on a Direwolf instance:
+.PP
+.nf
+.RS
+axlisten \-\-tcp localhost:8001 \-\-call GB7RDG
+.RE
+.fi
+.PP
+A log for a program:
+.PP
+.nf
+.RS
+axlisten \-q \-\-json radio >> /var/log/radio.jsonl
+.RE
+.fi
+.PP
+The old way, readable dump without timestamps:
+.PP
+.nf
+.RS
+axlisten \-\-classic \-art \-p radio
+.RE
+.fi
+.SH ENVIRONMENT
+.TP
+.B AXCALL_PORTS
+Read this ports file instead of the usual two.
+.TP
+.B NO_COLOR
+When set, no colour unless
+.B \-\-color always
+is given.
+.SH FILES
+.TP
+.I /etc/axcall/ports
+.TQ
+.I ~/.config/axcall/ports
+The ports file, shared with
+.BR axcall (1).
+.SH SEE ALSO
+.BR axcall (1),
+.BR axsocks (1),
+.BR axinetd (1),
+.BR axtun (1)
+.PP
+Project home:
+.UR https://github.com/packet-net/axcall
+.UE
+.SH AUTHOR
+Tom Fanning M0LTE.
+.PP
+The classic output is that of the ax25\-apps
+.BR axlisten ,
+by Heikki Hannikainen OH7LZB and others, whose frame decoding goes back to
+Phil Karn KA9Q.

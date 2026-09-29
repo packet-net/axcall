@@ -23,5 +23,6 @@ Description: connected-mode AX.25 terminal over KISS
  .
  Self-contained: bundles its own .NET runtime, so no system runtime is
  required. Replaces ax25-apps, which owns the same /usr/bin/axcall; the rest
- of that package (axlisten, ax25ipd, ax25rtd, ax25mond) depends on the
- withdrawn kernel stack and no longer functions.
+ of that package depends on the withdrawn kernel stack and no longer
+ functions. Its axlisten is replaced by the axlisten package; ax25ipd, ax25rtd
+ and ax25mond have no counterpart.

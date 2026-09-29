@@ -97,7 +97,7 @@ jobs:
           # which is a different interface, and Windows needs a driver
           # installed. Shipping a binary that can only say "not supported" would
           # be worse than not shipping one.
-          projects="src/Axcall/Axcall.csproj src/Axsocks/Axsocks.csproj src/Axinetd/Axinetd.csproj"
+          projects="src/Axcall/Axcall.csproj src/Axsocks/Axsocks.csproj src/Axinetd/Axinetd.csproj src/Axlisten/Axlisten.csproj"
           case "${{ matrix.rid }}" in linux-*) projects="$projects src/Axtun/Axtun.csproj" ;; esac
           for proj in $projects; do
             dotnet publish "$proj" -c Release -r "${{ matrix.rid }}" --self-contained \
@@ -125,7 +125,7 @@ jobs:
             # Windows.
             dir="axcall-$TAG-$RID"
             rm -rf stage && mkdir -p "stage/$dir"
-            cp "$PUB/axcall.exe" "$PUB/axsocks.exe" "$PUB/axinetd.exe" "stage/$dir/"
+            cp "$PUB/axcall.exe" "$PUB/axsocks.exe" "$PUB/axinetd.exe" "$PUB/axlisten.exe" "stage/$dir/"
             # Compress-Archive rather than 7z: it is part of PowerShell, so it
             # is there whatever the runner image ships.
             powershell -NoProfile -Command "Compress-Archive -Path 'stage/$dir' -DestinationPath 'dist/$dir.zip'"
@@ -146,7 +146,7 @@ jobs:
           # shape and nobody has to wonder why theirs is different.
           dir="axcall-$TAG-$RID"
           rm -rf stage && mkdir -p "stage/$dir"
-          tools="axcall axsocks axinetd"
+          tools="axcall axsocks axinetd axlisten"
           case "$RID" in linux-*) tools="$tools axtun" ;; esac
           for tool in $tools; do
             cp "$PUB/$tool" "stage/$dir/$tool"
@@ -166,6 +166,7 @@ jobs:
             printf 'axcall   dial a station and talk to it\n'
             printf 'axsocks  a SOCKS5 proxy onto the same port, for calling out\n'
             printf 'axinetd  run a program for whoever calls in\n'
+            printf 'axlisten show what is on the channel\n'
             case "$RID" in
               linux-*) printf 'axtun    IP over AX.25 on a TUN device, for software that speaks IP\n' ;;
             esac
@@ -230,7 +231,8 @@ jobs:
             artifacts/axcall_*_${{ matrix.deb }}.deb \
             artifacts/axsocks_*_${{ matrix.deb }}.deb \
             artifacts/axinetd_*_${{ matrix.deb }}.deb \
-            artifacts/axtun_*_${{ matrix.deb }}.deb
+            artifacts/axtun_*_${{ matrix.deb }}.deb \
+            artifacts/axlisten_*_${{ matrix.deb }}.deb
 
       - name: Collect the .debs
         if: matrix.deb != ''
@@ -264,11 +266,11 @@ jobs:
           mkdir -p dist
           find staged -type f -exec cp {} dist/ \;
           ls -l dist
-          # Five tarballs, one Windows .zip, and four .debs for each of three
+          # Five tarballs, one Windows .zip, and five .debs for each of three
           # architectures: one package per program. Fail loudly rather than
           # publishing a release quietly missing a platform or a tool.
           count=$(find dist -type f | wc -l)
-          [ "$count" -eq 18 ] || { echo "expected 18 artifacts, got $count"; exit 1; }
+          [ "$count" -eq 21 ] || { echo "expected 21 artifacts, got $count"; exit 1; }
 
       - name: Create release
         if: github.event.inputs.dry_run != 'true'

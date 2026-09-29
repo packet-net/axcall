@@ -37,7 +37,20 @@ public static class FrameTrace
         sb.Append(e.Timestamp.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture));
         sb.Append(e.Direction == FrameDirection.Transmitted ? " > " : " < ");
 
-        var frame = e.Frame;
+        AppendFrame(sb, e.Frame);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// The frame itself, without a timestamp or direction: addresses, type,
+    /// command or response, poll or final, and whatever that type carries.
+    /// Shared with axlisten, so a frame reads the same whichever tool saw it.
+    /// </summary>
+    public static void AppendFrame(StringBuilder sb, Ax25Frame frame)
+    {
+        ArgumentNullException.ThrowIfNull(sb);
+        ArgumentNullException.ThrowIfNull(frame);
+
         sb.Append(frame.Source.Callsign);
         sb.Append('>');
         sb.Append(frame.Destination.Callsign);
@@ -87,8 +100,6 @@ public static class FrameTrace
         {
             sb.Append(CultureInfo.InvariantCulture, $" len={frame.Info.Length}");
         }
-
-        return sb.ToString();
     }
 
     // Upper-case spelling, as the spec and every other monitor writes them.

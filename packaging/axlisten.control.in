@@ -1,0 +1,28 @@
+Package: axlisten
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Tom Fanning <tom@m0lte.uk>
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Suggests: axcall
+Conflicts: ax25-apps
+Replaces: ax25-apps
+Section: hamradio
+Priority: optional
+Homepage: https://github.com/packet-net/axcall
+Description: AX.25 channel monitor over KISS
+ Shows every AX.25 frame a TNC hears, decoded: addresses and digipeaters,
+ frame type, sequence numbers, and what the frame carries. Text is shown as
+ text, and IP, ARP and NET/ROM, including routing broadcasts, as a one-line
+ summary each. Listens on any number of ports at once, and reopens a port
+ that goes away. JSON output is there for programs.
+ .
+ --classic gives the output and the options of the axlisten from ax25-apps,
+ for scripts and log parsers written against it.
+ .
+ Receive only: it never transmits and needs no callsign. It carries its own
+ AX.25 decoding and speaks KISS to a TNC over a serial port or over TCP, so it
+ needs no kernel AX.25 stack and no privilege.
+ .
+ Self-contained: bundles its own .NET runtime, so no system runtime is
+ required. Replaces ax25-apps, which owns the same /usr/bin/axlisten.

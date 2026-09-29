@@ -20,8 +20,8 @@
 #      serial port to prove the native serial library is present, which an exit
 #      code alone does not show. axtun opens a TUN device before it looks at the
 #      modem, so it is checked against whichever of those it can reach.
-#   5. axcall takes over /usr/bin/axcall from ax25-apps, which owns that path,
-#      via the declared Conflicts + Replaces.
+#   5. axcall and axlisten take over /usr/bin/axcall and /usr/bin/axlisten from
+#      ax25-apps, which owns those paths, via the declared Conflicts + Replaces.
 #   6. `apt purge` removes them cleanly.
 #
 # The packages are installed together because that is the interesting case: one
@@ -116,6 +116,12 @@ if has axcall; then
   axcall radio gb7rdg >/dev/null 2>&1; rc=$?
   [ "$rc" -eq 2 ] || fail "unknown port: expected exit 2, got $rc"
 fi
+if has axlisten; then
+  # No port named and none configured: nothing to listen to, which is a usage
+  # error rather than a monitor sitting silent forever.
+  axlisten >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 2 ] || fail "axlisten with no ports: expected exit 2, got $rc"
+fi
 
 install -d /etc/axcall
 printf "radio  M0LTE-7  /dev/ttyUSB0:57600  256  4  smoke\n" > /etc/axcall/ports
@@ -195,16 +201,27 @@ fi
 
 rm -rf /etc/axcall
 
-if has axcall; then
-  echo "--- 5. axcall takes over /usr/bin/axcall from ax25-apps"
-  apt-get purge -y -qq axcall >/dev/null || fail "purge before the conflict test"
+TAKEOVER=""
+has axcall && TAKEOVER="$TAKEOVER axcall"
+has axlisten && TAKEOVER="$TAKEOVER axlisten"
+if [ -n "$TAKEOVER" ]; then
+  echo "--- 5.$TAKEOVER take over their paths from ax25-apps"
+  # shellcheck disable=SC2086
+  apt-get purge -y -qq $TAKEOVER >/dev/null || fail "purge before the conflict test"
   apt-get install -y -qq ax25-apps >/dev/null 2>&1 || { echo "    (ax25-apps not in this suite, skipping)"; SKIP_CONFLICT=1; }
   if [ "${SKIP_CONFLICT:-0}" != "1" ]; then
-    [ -x /usr/bin/axcall ] || fail "ax25-apps did not provide /usr/bin/axcall"
-    apt-get install -y -qq ./axcall_*.deb || fail "install over ax25-apps (Conflicts/Replaces)"
+    takeover_debs=""
+    for pkg in $TAKEOVER; do
+      [ -x "/usr/bin/$pkg" ] || fail "ax25-apps did not provide /usr/bin/$pkg"
+      takeover_debs="$takeover_debs $(ls ./"${pkg}"_*.deb)"
+    done
+    # shellcheck disable=SC2086
+    apt-get install -y -qq $takeover_debs || fail "install over ax25-apps (Conflicts/Replaces)"
     dpkg -s ax25-apps 2>/dev/null | grep -q "Status: install ok installed" \
       && fail "ax25-apps should have been removed by the Conflicts"
-    axcall --version | grep -q "^axcall " || fail "wrong axcall won after the takeover"
+    for pkg in $TAKEOVER; do
+      "$pkg" --version | grep -q "^$pkg " || fail "wrong $pkg won after the takeover"
+    done
   fi
 fi
 
