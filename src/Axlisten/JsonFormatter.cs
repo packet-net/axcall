@@ -15,7 +15,8 @@ namespace Axlisten;
 /// output: <c>ns</c> only on an I frame, <c>nr</c> only on I and S frames,
 /// <c>pid</c> only where there is one. The information field is always there
 /// as base64, because it is binary until proven otherwise, and additionally as
-/// <c>text</c> when it reads as text.
+/// <c>text</c> when it reads as text. <c>decoded</c> carries the one-line
+/// summaries of APRS, NET/ROM, IP or ARP that the text output shows.
 /// </para>
 /// <code>
 /// {"time":"2026-09-14T18:45:51.123Z","port":"radio","kissPort":0,"from":"G4ABC-1","to":"APRS",
@@ -103,6 +104,17 @@ internal sealed class JsonFormatter : IFrameFormatter
             json.WriteBase64String("info", info);
             if (PayloadDecoder.TryText(info, out var lines))
                 json.WriteString("text", string.Join('\n', lines));
+
+            // The same one-line summaries the text output shows, for a program
+            // that wants the gist without decoding APRS or NET/ROM itself.
+            var decoded = PayloadDecoder.Describe(frame, alwaysHex: false).Where(l => l.Kind == LineKind.Summary).ToList();
+            if (decoded.Count > 0)
+            {
+                json.WriteStartArray("decoded");
+                foreach (var line in decoded)
+                    json.WriteStringValue(line.Text.Trim());
+                json.WriteEndArray();
+            }
         }
     }
 }

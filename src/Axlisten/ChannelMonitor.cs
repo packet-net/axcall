@@ -49,8 +49,6 @@ internal sealed class ChannelMonitor(
     private static readonly TimeSpan IdleRedialAfter = TimeSpan.FromSeconds(30);
     private readonly TimeSpan firstRetry = firstRetry ?? TimeSpan.FromSeconds(1);
 
-    private readonly LinkTracker links = new();
-
     private readonly Channel<MonitoredFrame> heard =
         Channel.CreateUnbounded<MonitoredFrame>(new UnboundedChannelOptions { SingleReader = true });
 
@@ -110,9 +108,6 @@ internal sealed class ChannelMonitor(
         {
             await foreach (var frame in heard.Reader.ReadAllAsync(ct).ConfigureAwait(false))
             {
-                // Every frame, filtered or not: a link set up by stations the
-                // filter hides is still a link whose frames may be shown.
-                links.Observe(frame);
                 if (!filter.Matches(frame))
                     continue;
                 await output.WriteAsync(formatter.Format(frame)).ConfigureAwait(false);

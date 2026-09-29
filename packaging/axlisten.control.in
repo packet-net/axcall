@@ -13,8 +13,7 @@ Homepage: https://github.com/packet-net/axcall
 Description: AX.25 channel monitor over KISS
  Shows every AX.25 frame a TNC hears, decoded: addresses and digipeaters,
  frame type, sequence numbers, and what the frame carries. Text is shown as
- text, and IP, ARP and NET/ROM, including routing broadcasts, as a one-line
- summary each. Listens on any number of ports at once, and reopens a port
+ text; APRS, NET/ROM (with routing broadcasts), IP and ARP as a summary. Listens on any number of ports at once, and reopens a port
  that goes away. JSON output is there for programs.
  .
  --classic gives the output and the options of the axlisten from ax25-apps,

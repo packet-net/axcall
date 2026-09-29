@@ -23,13 +23,6 @@ internal sealed record MonitoredFrame(
     /// <summary>The port as printed: the name, plus the channel on a multi-channel TNC.</summary>
     public string Label => KissPort == 0 ? Port : $"{Port}[{KissPort}]";
 
-    /// <summary>
-    /// What <see cref="LinkTracker"/> knows about this frame's link: true if it
-    /// saw the link set up as modulo 128, false as modulo 8, null if it has not
-    /// seen the link set up at all. Set before <see cref="Frame"/> is read.
-    /// </summary>
-    public bool? LinkExtended { get; set; }
-
     /// <summary>The decoded frame, or null for bytes that are not one.</summary>
     public Ax25Frame? Frame
     {
@@ -37,7 +30,7 @@ internal sealed record MonitoredFrame(
         {
             if (!parsed)
             {
-                frame = Parse(Bytes.Span, LinkExtended ?? LooksExtended(Bytes.Span));
+                frame = Parse(Bytes.Span, LooksExtended(Bytes.Span));
                 parsed = true;
             }
             return frame;
@@ -46,13 +39,14 @@ internal sealed record MonitoredFrame(
 
     /// <summary>
     /// True when the source SSID's first reserved bit is clear, which is how
-    /// the Linux stack and Direwolf mark a modulo-128 link.
+    /// the Linux stack marked a modulo-128 link.
     /// </summary>
     /// <remarks>
-    /// This is the guess the classic axlisten made, from the same bit, and it
-    /// is only a guess: plenty of stations, this suite's own among them, leave
-    /// the bit set on a modulo-128 link. So it is the fallback, for a link
-    /// <see cref="LinkTracker"/> has not seen set up.
+    /// A monitor was not party to the negotiation, and an I or S frame's
+    /// control field is a different width under each modulus, so this bit is
+    /// all it has to go on. It is what the classic axlisten read. Stations that
+    /// leave the bit set on a modulo-128 link, Direwolf and (until
+    /// packet-net/packet.net#859) this suite among them, are read as modulo 8.
     /// </remarks>
     public static bool LooksExtended(ReadOnlySpan<byte> bytes)
         => bytes.Length > 13 && (bytes[13] & 0x40) == 0;

@@ -13,9 +13,10 @@ axlisten \- show what is on an AX.25 channel
 .SH DESCRIPTION
 .B axlisten
 prints every AX.25 frame a TNC hears, one header line per frame followed by
-what the frame carries, decoded. Text is shown as text; IP, ARP and NET/ROM,
-including routing broadcasts, get a one-line summary each; anything else is
-hex dumped.
+what the frame carries, decoded. Text is shown as text; APRS, NET/ROM
+(including routing broadcasts and INP3), IP and ARP get a summary line; anything
+else is hex dumped. APRS is decoded by Packet.Aprs and NET/ROM by Packet.NetRom,
+the libraries the rest of the stack uses.
 .PP
 It only receives. It never transmits, needs no callsign, and is safe to run on
 any port at any time.
@@ -38,8 +39,9 @@ prints, preceded by the time and the port:
 18:45:51.520 radio  GB7RDG>M0LTE\-7 UA R F
 18:45:51.521 radio  M0LTE\-7>GB7RDG I C P ns=0 nr=0 pid=F0 len=12
                     Hello there
-18:45:52.004 radio  G4ABC\-1>APRS via WIDE1\-1*,WIDE2\-1 UI C pid=F0 len=24
-                    !5130.00N/00010.00W\-Test
+18:45:52.004 radio  G4ABC\-1>APDW16 via WIDE1\-1*,WIDE2\-1 UI C pid=F0 len=46
+                    APRS position 51.5000 \-0.1167, Car, 88\(de 36 kn [WB2OSZ DireWolf]
+                    On the way to the rally
 18:45:53.310 radio  GB7RDG>NODES UI C pid=CF len=48
                     NET/ROM nodes from RDG, 2 routes
                       CIP:GB7CIP        via GB7CIP    quality 200
@@ -64,6 +66,10 @@ Where the TNC reports signal strength, it is appended as
 and
 .BR snr= .
 .PP
+An APRS summary names the device that sent it where the destination identifies
+one, from the APRS device identification database. APRS units are the ones it
+is sent in: knots, feet, Fahrenheit, miles per hour.
+.PP
 Control characters in received text are shown as dots and never reach the
 terminal, since an escape sequence from anybody in range could otherwise
 rewrite it.
@@ -76,13 +82,13 @@ is
 .BR dumb .
 .SS Modulo 128
 An I or S frame's control field is one octet on a modulo-8 link and two on a
-modulo-128 link, and the frame does not say which. A link that
+modulo-128 link, and the frame does not say which. As the classic axlisten
+did,
 .B axlisten
-has seen set up with SABME is read as modulo 128 until it is disconnected. A
-link that was already up when it started is guessed at from the reserved bit
-in the source SSID, as the classic axlisten did. Many stations do not set that
-bit, so the I and S frames of such a link may be misread until it is next set
-up.
+reads a frame as modulo 128 when the first reserved bit of the source SSID is
+clear, which is how the Linux kernel stack marked it. Stations that do not
+mark it, Direwolf among them, have the I and S frames of their modulo-128
+links misread.
 .SH OPTIONS
 .TP
 .I port
@@ -177,7 +183,9 @@ only where there is one.
 is the information field in base64, always present when the field is not
 empty.
 .B text
-is added when it reads as text.
+is added when it reads as text, and
+.B decoded
+holds the summary lines of APRS, NET/ROM, IP or ARP that the text output shows.
 .B cr
 is
 .BR command ,

@@ -191,35 +191,78 @@ public sealed class AxlistenFormatTests
         Friendly(Heard(Ui("hi")), color: true).Should().Contain("\e[");
     }
 
-    // --- modulo 128 ----------------------------------------------------------
+    // --- APRS ------------------------------------------------------------------
+
+    private static MonitoredFrame HeardAprs(Packet.Aprs.AprsPacket packet)
+        => new("radio", 0, At, packet.ToAx25Frame());
 
     [Fact]
-    public void A_Link_Seen_Set_Up_With_Sabme_Is_Read_As_Modulo_128()
+    public void Aprs_Position_Is_Summarised_With_Its_Comment_Beneath()
     {
-        var tracker = new LinkTracker();
-        tracker.Observe(Heard(Ax25Frame.Sabme(Them, Us)));
+        var packet = Packet.Aprs.Aprs.From("M0LTE-9").To("APDW16").Via("WIDE1-1")
+            .Position(51.4543, -0.9781).Symbol(Packet.Aprs.AprsSymbol.Car)
+            .Course(88).Speed(36).Altitude(120).Comment("Mobile").Build();
 
-        // This suite's own frames leave the source's reserved bit set, so only
-        // having seen the SABME says what width the control field is.
-        var info = Heard(Ax25Frame.I(Them, Us, nr: 100, ns: 90, info: "hi"u8, extended: true));
-        tracker.Observe(info);
-
-        info.Frame!.Ns.Should().Be(90);
-        info.Frame.Nr.Should().Be(100);
-        info.Frame.Info.ToArray().Should().Equal("hi"u8.ToArray());
+        var output = Friendly(HeardAprs(packet));
+        // APRS carries hundredths of a minute, so the longitude comes back rounded.
+        output.Should().MatchRegex(@"\n {7}APRS position 51\.4543 -0\.9782, Car, 88° 36 kn, 120 ft \[[^\]]*DireWolf\]\n");
+        output.Should().Contain("       Mobile\n");
     }
 
     [Fact]
-    public void A_Disconnect_Forgets_The_Link()
+    public void Aprs_Message_Shows_Who_It_Is_For_And_What_It_Says()
     {
-        var tracker = new LinkTracker();
-        tracker.Observe(Heard(Ax25Frame.Sabme(Them, Us)));
-        tracker.Observe(Heard(Ax25Frame.Disc(Them, Us)));
+        var packet = Packet.Aprs.Aprs.From("M0LTE-9").Message("G4ABC-7", "See you at the rally").WithId("42").Build();
 
-        var info = Heard(Ax25Frame.I(Them, Us, nr: 2, ns: 3, info: "hi"u8));
-        tracker.Observe(info);
-        info.LinkExtended.Should().BeNull();
-        info.Frame!.Ns.Should().Be(3);
+        var output = Friendly(HeardAprs(packet));
+        output.Should().Contain("APRS message to G4ABC-7 #42\n");
+        output.Should().Contain("       See you at the rally\n");
+    }
+
+    [Fact]
+    public void Aprs_Status_Is_Its_Text()
+    {
+        var packet = Packet.Aprs.Aprs.From("M0LTE-9").Status("On the air").Build();
+        Friendly(HeardAprs(packet)).Should().Contain("APRS status\n       On the air\n");
+    }
+
+    [Fact]
+    public void A_Text_Frame_That_Is_Not_Aprs_Is_Shown_As_Text()
+    {
+        // A BBS mail beacon: UI, PID F0, and not APRS.
+        var output = Friendly(Heard(Ui("Mail for: M0LTE G4ABC", new Callsign("MAIL", 0))));
+        output.Should().NotContain("APRS");
+        output.Should().Contain("       Mail for: M0LTE G4ABC\n");
+    }
+
+    [Fact]
+    public void Json_Carries_The_Decoded_Summary()
+    {
+        var packet = Packet.Aprs.Aprs.From("M0LTE-9").Status("On the air").Build();
+        using var doc = JsonDocument.Parse(new JsonFormatter().Format(HeardAprs(packet)));
+        doc.RootElement.GetProperty("decoded")[0].GetString().Should().Be("APRS status");
+    }
+
+    // --- modulo 128 ----------------------------------------------------------
+
+    [Fact]
+    public void A_Source_Ssid_Marked_The_Linux_Way_Is_Read_As_Modulo_128()
+    {
+        var bytes = Ax25Frame.I(Them, Us, nr: 100, ns: 90, info: "hi"u8, extended: true).ToBytes();
+        bytes[13] &= 0xBF; // reserved bits 01, as ax25_addr_build() wrote them
+
+        var frame = Heard(bytes).Frame!;
+        frame.Ns.Should().Be(90);
+        frame.Nr.Should().Be(100);
+        frame.Info.ToArray().Should().Equal("hi"u8.ToArray());
+    }
+
+    [Fact]
+    public void An_Unmarked_Source_Ssid_Is_Read_As_Modulo_8()
+    {
+        var frame = Heard(Ax25Frame.I(Them, Us, nr: 2, ns: 3, info: "hi"u8)).Frame!;
+        frame.Ns.Should().Be(3);
+        frame.Nr.Should().Be(2);
     }
 
     // --- JSON ----------------------------------------------------------------

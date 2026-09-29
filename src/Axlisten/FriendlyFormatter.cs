@@ -25,7 +25,8 @@ internal enum TimeStyle
 /// <remarks>
 /// <code>
 /// 18:45:51.123 radio  G4ABC-1>APRS via WIDE1-1* UI C pid=F0 len=24
-///                     !5130.00N/00010.00W-Test
+///                     APRS position 51.5000 -0.1667, House QTH (VHF)
+///                     Test
 /// 18:45:52.004 radio  GB7RDG>NODES UI C pid=CF len=48
 ///                     NET/ROM nodes from RDG, 2 routes
 /// </code>

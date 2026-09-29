@@ -43,6 +43,7 @@ internal static class PayloadDecoder
             Ax25Pid.Arp => DescribeArp(info, lines),
             Ax25Pid.NetRom => NetRom.Describe(frame, lines),
             PidSegment => DescribeSegment(info, lines),
+            Ax25Pid.NoLayer3 when frame.IsUi => AprsSummary.Describe(frame, lines),
             _ => false,
         };
 

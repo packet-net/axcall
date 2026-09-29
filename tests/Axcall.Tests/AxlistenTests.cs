@@ -248,7 +248,9 @@ public sealed class AxlistenTests
         b.Hear(Ax25Frame.Ua(new Callsign("M0LTE", 7), new Callsign("GB7RDG", 0), finalBit: true), port: 2);
 
         await Eventually(() => output.Text.Contains("SABM") && output.Text.Contains("UA"));
-        output.Text.Should().Contain("vhf    M0LTE-7>GB7RDG SABM").And.Contain("uhf[2]  GB7RDG>M0LTE-7 UA");
+        // The two ports deliver concurrently, and the port column widens when
+        // uhf[2] is first seen, so the padding depends on which came first.
+        output.Text.Should().MatchRegex(@"vhf +M0LTE-7>GB7RDG SABM").And.MatchRegex(@"uhf\[2\] +GB7RDG>M0LTE-7 UA");
         log.Text.Should().Contain("listening on vhf (a), uhf (b)");
 
         await cts.CancelAsync();
