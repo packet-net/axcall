@@ -4,13 +4,13 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Packet.Aprs" Version="0.53.0" />
-    <PackageVersion Include="Packet.Core" Version="0.53.0" />
-    <PackageVersion Include="Packet.Ax25" Version="0.53.0" />
-    <PackageVersion Include="Packet.Ax25.Transport.Abstractions" Version="0.53.0" />
-    <PackageVersion Include="Packet.Kiss" Version="0.52.0" />
-    <PackageVersion Include="Packet.Kiss.Serial" Version="0.53.0" />
-    <PackageVersion Include="Packet.NetRom" Version="0.53.0" />
+    <PackageVersion Include="Packet.Aprs" Version="0.54.0" />
+    <PackageVersion Include="Packet.Core" Version="0.54.0" />
+    <PackageVersion Include="Packet.Ax25" Version="0.54.0" />
+    <PackageVersion Include="Packet.Ax25.Transport.Abstractions" Version="0.54.0" />
+    <PackageVersion Include="Packet.Kiss" Version="0.54.0" />
+    <PackageVersion Include="Packet.Kiss.Serial" Version="0.54.0" />
+    <PackageVersion Include="Packet.NetRom" Version="0.54.0" />
   </ItemGroup>
   <ItemGroup>
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
